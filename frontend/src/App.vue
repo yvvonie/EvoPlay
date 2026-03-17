@@ -2,6 +2,8 @@
 import { ref, onMounted } from "vue";
 import Game2048 from "./components/Game2048.vue";
 import GameMergeFall from "./components/GameMergeFall.vue";
+import GameNutsBolts from "./components/GameNutsBolts.vue";
+import GameSokoban from "./components/GameSokoban.vue";
 
 const games = ref([]);
 const currentGame = ref(null); // null = home menu
@@ -16,6 +18,16 @@ const gameInfo = {
     title: "MergeFall",
     desc: "Drop numbers into columns, chain merges, score combos!",
     icon: "💥",
+  },
+  nuts_bolts: {
+    title: "Nuts & Bolts",
+    desc: "Sort the colored nuts onto matching screws!",
+    icon: "🔩",
+  },
+  sokoban: {
+    title: "Sokoban",
+    desc: "Push crates to their designated goals!",
+    icon: "📦",
   },
 };
 
@@ -81,6 +93,8 @@ onMounted(async () => {
       <main>
         <Game2048 v-if="currentGame === '2048'" />
         <GameMergeFall v-else-if="currentGame === 'mergefall'" />
+        <GameNutsBolts v-else-if="currentGame === 'nuts_bolts'" />
+        <GameSokoban v-else-if="currentGame === 'sokoban'" />
       </main>
     </template>
   </div>

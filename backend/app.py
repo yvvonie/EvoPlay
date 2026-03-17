@@ -12,6 +12,8 @@ from flask_cors import CORS
 
 from games.game_2048 import Game2048
 from games.game_mergefall import MergeFall
+from games.game_nuts_bolts import NutsBolts
+from games.game_sokoban import Sokoban
 
 # ── Logging ─────────────────────────────────────────────────────────
 
@@ -31,6 +33,8 @@ CORS(app)
 GAMES: dict[str, type] = {
     "2048": Game2048,
     "mergefall": MergeFall,
+    "nuts_bolts": NutsBolts,
+    "sokoban": Sokoban,
 }
 
 # Active game sessions keyed by (game_name, session_id) tuple.
