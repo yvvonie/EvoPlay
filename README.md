@@ -17,6 +17,8 @@ EvoPlay is a game platform that currently supports the following games:
 
 - **2048**: Classic sliding number puzzle game
 - **MergeFall**: Drop-and-merge elimination game
+- **Nuts & Bolts**: Sort the colored nuts onto matching screws!
+- **Sokoban**: Push crates to their designated goals!
 
 Project Features:
 - 🎮 Unified game interface, easy to extend with new games
@@ -92,6 +94,22 @@ Project Features:
   - Action format: `"drop <column>"` (e.g., "drop 0")
   - Supports chain merging and combo scoring
   - Dynamically generates next tile (based on current maximum tile value)
+
+**`games/game_nuts_bolts.py` - Nuts & Bolts Game Implementation**
+- **Inherits**: `BaseGame`
+- **Game Logic**:
+  - Color sorting puzzle with screws and nuts
+  - Move nuts between screws to group by color
+  - Includes level progression and undo functionality
+  - Validates moves based on color matching and capacity
+
+**`games/game_sokoban.py` - Sokoban Game Implementation**
+- **Inherits**: `BaseGame`
+- **Game Logic**:
+  - Classic box-pushing puzzle on a grid map
+  - Player moves (up/down/left/right) to push boxes to goal locations
+  - Handles collision detection (walls, obstacles) and win conditions
+  - Supports undo for mistake correction
 
 #### 2. Frontend Architecture (`frontend/`)
 
