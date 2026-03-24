@@ -3,6 +3,8 @@ import { ref, onMounted, onUnmounted, computed } from "vue";
 import GameLog from "./GameLog.vue";
 import { getSessionId, resetSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
 
+defineProps({ playerName: { type: String, default: "" } });
+
 const API = "/api/game/nuts_bolts";
 const logRef = ref(null);
 const sessionId = ref(null);

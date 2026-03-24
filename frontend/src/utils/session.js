@@ -41,11 +41,16 @@ export function resetSessionId(gameName) {
 }
 
 /**
- * Add session_id to URL query parameters.
+ * Add session_id and player_name to URL query parameters.
  */
 export function addSessionToUrl(url, sessionId) {
   const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}session_id=${encodeURIComponent(sessionId)}`;
+  let result = `${url}${separator}session_id=${encodeURIComponent(sessionId)}`;
+  const playerName = localStorage.getItem("evoplay_player");
+  if (playerName) {
+    result += `&player_name=${encodeURIComponent(playerName)}`;
+  }
+  return result;
 }
 
 /**

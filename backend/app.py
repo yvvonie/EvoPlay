@@ -6,14 +6,37 @@ import logging
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+
+# ── Player registry ──────────────────────────────────────────────────
+
+PLAYERS_FILE = Path(__file__).resolve().parent / "players.json"
+
+
+def _load_players() -> dict:
+    """Load registered players from disk."""
+    if PLAYERS_FILE.exists():
+        with open(PLAYERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _save_players(players: dict) -> None:
+    """Persist players to disk."""
+    with open(PLAYERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(players, f, ensure_ascii=False, indent=2)
 
 from games.game_2048 import Game2048
 from games.game_mergefall import MergeFall
 from games.game_nuts_bolts import NutsBolts
 from games.game_sokoban import Sokoban
+from games.game_fourinarow import FourInARow
+from games.game_othello import Othello
+from games.game_othello6 import Othello6
+from games.game_tictactoe import TicTacToe
 
 # ── Logging ─────────────────────────────────────────────────────────
 
@@ -35,6 +58,10 @@ GAMES: dict[str, type] = {
     "mergefall": MergeFall,
     "nuts_bolts": NutsBolts,
     "sokoban": Sokoban,
+    "fourinarow": FourInARow,
+    "othello": Othello,
+    "othello6": Othello6,
+    "tictactoe": TicTacToe,
 }
 
 # Active game sessions keyed by (game_name, session_id) tuple.
@@ -80,11 +107,16 @@ def _get_game(name: str, session_id: str | None = None, require_session: bool = 
         if name not in GAMES:
             return None, None
         game_instance = GAMES[name]()
-        # Set session_id for log file naming
+        # Set session_id for logging
         game_instance.set_session_id(session_id)
         sessions[key] = game_instance
-        log.info("Created new session for game '%s' with session_id '%s'", name, session_id)
-    
+        log.info("Created new session for game '%s' session='%s'", name, session_id)
+
+    # Always update player_name if provided (covers both new and existing sessions)
+    player_name = request.args.get("player_name")
+    if player_name and hasattr(sessions[key], "set_player_name"):
+        sessions[key].set_player_name(player_name)
+
     return sessions[key], session_id
 
 
@@ -140,6 +172,13 @@ def game_action(name: str):
         return jsonify({"error": "Missing 'move' query parameter."}), 400
 
     state = game.apply_action(move)
+
+    # For agent callers: auto-chain bot move when bot_pending is set
+    # Frontend callers use ?auto_bot=false (default) and call /bot_move separately
+    auto_bot = request.args.get("auto_bot", "false").lower() in ("true", "1", "yes")
+    if auto_bot and state.get("bot_pending") and hasattr(game, "apply_bot_move"):
+        state = game.apply_bot_move()
+
     state["session_id"] = session_id  # Include session_id in response
     _log_action(f"{name}[{session_id[:8]}]", move, state)
     return jsonify(state)
@@ -151,9 +190,28 @@ def game_reset(name: str):
     game, session_id = _get_game(name)
     if game is None:
         return jsonify({"error": f"Unknown game: {name}"}), 404
+    difficulty = request.args.get("difficulty")
+    if difficulty and hasattr(game, "set_difficulty"):
+        game.set_difficulty(difficulty)
     state = game.reset()
     state["session_id"] = session_id  # Include session_id in response
     _log_action(f"{name}[{session_id[:8]}]", "RESET", state)
+    return jsonify(state)
+
+
+@app.get("/api/game/<name>/bot_move")
+def game_bot_move(name: str):
+    """Trigger the bot's move (used for two-phase turn rendering)."""
+    game, session_id = _get_game(name, require_session=True)
+    if session_id is None:
+        return jsonify({"error": "Missing required 'session_id' query parameter."}), 400
+    if game is None:
+        return jsonify({"error": f"Unknown game: {name}"}), 404
+    if not hasattr(game, "apply_bot_move"):
+        return jsonify({"error": f"Game '{name}' does not support separate bot moves."}), 400
+    state = game.apply_bot_move()
+    state["session_id"] = session_id
+    _log_action(f"{name}[{session_id[:8]}]", "BOT_MOVE", state)
     return jsonify(state)
 
 
@@ -191,6 +249,57 @@ def game_rules(name: str):
     game_instance = GAMES[name]()
     rules = game_instance.get_rules()
     return jsonify({"game": name, "rules": rules})
+
+
+# ── Player routes ──────────────────────────────────────────────────
+
+
+@app.post("/api/player/register")
+def player_register():
+    """Register a new player name. Returns error if name already taken."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name cannot be empty."}), 400
+    if len(name) > 20:
+        return jsonify({"ok": False, "error": "Name too long (max 20 chars)."}), 400
+
+    players = _load_players()
+    # Case-insensitive duplicate check
+    if name.lower() in {k.lower() for k in players}:
+        return jsonify({"ok": False, "error": f"Name '{name}' is already taken."}), 409
+
+    players[name] = {
+        "registered_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_players(players)
+    log.info("Registered new player: %s", name)
+    return jsonify({"ok": True, "name": name})
+
+
+@app.post("/api/player/login")
+def player_login():
+    """Check if a player name exists (login). Returns ok=true if found."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name cannot be empty."}), 400
+
+    players = _load_players()
+    # Case-insensitive lookup, return the canonical name
+    for registered_name in players:
+        if registered_name.lower() == name.lower():
+            return jsonify({"ok": True, "name": registered_name})
+
+    return jsonify({"ok": False, "error": f"Player '{name}' not found. Please register first."}), 404
+
+
+@app.get("/api/players")
+def list_players():
+    """List all registered player names."""
+    players = _load_players()
+    return jsonify({"players": list(players.keys())})
+
 
 
 # ── Entry point ─────────────────────────────────────────────────────

@@ -82,39 +82,47 @@ class VanillaReasoning(Reasoning):
         if rules:
             rules_section = f"\n\nGAME RULES:\n{rules}\n"
         
+        actions_str = ', '.join(valid_actions)
         prompt = f"""You are playing the game "{game_name}".{rules_section}
 
-Current game state:
-- Score: {score}
-- Game Over: {game_over}
-- Board:
+Current board:
 {self._format_board(board)}
+Score: {score}
 
-Valid actions you can take: {', '.join(valid_actions)}
+IMPORTANT: You MUST choose exactly one action from this list (copy it exactly):
+[{actions_str}]
 
-Please analyze the current situation and choose the best action from the valid actions list.
-Respond with ONLY the action string (e.g., "up", "down", "left", "right", or "drop 0", etc.).
-Do not include any explanation or additional text."""
+Pick the best action. Respond with ONLY the action string, nothing else."""
 
         try:
             # Call language model via unified interface
             system_message = "You are a game-playing AI agent. Respond with only the action string."
             response = self.llm.simple_call(prompt, system_message=system_message)
-            
-            action = response.strip()
-            
+
+            raw_response = response.strip()
+            action = raw_response
+            fallback = False
+
             # Validate that the action is in valid_actions
             if action not in valid_actions:
                 # If model returned an invalid action, fallback to first valid action
                 print(f"Warning: Model returned invalid action '{action}', using first valid action instead")
                 action = valid_actions[0] if valid_actions else ""
-            
+                fallback = True
+
+            # Store last response details for logging
+            self.last_raw_response = raw_response
+            self.last_action = action
+            self.last_fallback = fallback
+
             return action
-            
+
         except Exception as e:
             print(f"Error calling model ({self.llm.model}): {e}")
-            # Fallback to first valid action on error
-            return valid_actions[0] if valid_actions else ""
+            self.last_raw_response = f"ERROR: {e}"
+            self.last_action = valid_actions[0] if valid_actions else ""
+            self.last_fallback = True
+            return self.last_action
     
     def _format_board(self, board: Any) -> str:
         """Format board for display in prompt."""
