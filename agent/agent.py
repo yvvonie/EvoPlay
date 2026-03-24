@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import csv
 import time
-import requests
+from pathlib import Path
 from typing import Any
+
+import requests
 from agent.reasoning import Reasoning
+
+# LLM response logs go here (sibling to backend/logs/)
+LLM_LOG_DIR = Path(__file__).resolve().parent.parent / "backend" / "llm_logs"
 
 
 class Agent:
@@ -24,21 +30,28 @@ class Agent:
         backend_url: str = "http://localhost:5001",
         game_name: str = "2048",
         session_id: str | None = None,
+        player_name: str | None = None,
     ):
         """
         Initialize the agent.
-        
+
         Args:
             reasoning: Reasoning engine instance (e.g., GPTReasoning)
             backend_url: Backend API base URL
             game_name: Name of the game to play
             session_id: Optional session ID (will be generated if not provided)
+            player_name: Player name for logs (defaults to model name)
         """
         self.reasoning = reasoning
         self.backend_url = backend_url.rstrip("/")
         self.game_name = game_name
         self.session_id = session_id
         self.step_count = 0
+        # Use model name as player_name if not explicitly provided
+        self.player_name = player_name or getattr(getattr(reasoning, "llm", None), "model", "llm-agent")
+        # LLM response log (created lazily after session_id is known)
+        self._llm_log_file = None
+        self._llm_log_writer = None
     
     def get_state(self) -> dict[str, Any]:
         """
@@ -53,7 +66,7 @@ class Agent:
             self.reset_game()
         
         url = f"{self.backend_url}/api/game/{self.game_name}/state"
-        response = requests.get(url, params={"session_id": self.session_id})
+        response = requests.get(url, params={"session_id": self.session_id, "player_name": self.player_name})
         response.raise_for_status()
         state = response.json()
         
@@ -75,7 +88,7 @@ class Agent:
             self.get_state()
         
         url = f"{self.backend_url}/api/game/{self.game_name}/valid_actions"
-        response = requests.get(url, params={"session_id": self.session_id})
+        response = requests.get(url, params={"session_id": self.session_id, "player_name": self.player_name})
         response.raise_for_status()
         data = response.json()
         return data.get("valid_actions", [])
@@ -110,15 +123,29 @@ class Agent:
         url = f"{self.backend_url}/api/game/{self.game_name}/action"
         response = requests.get(
             url,
-            params={"move": action, "session_id": self.session_id}
+            params={"move": action, "session_id": self.session_id, "player_name": self.player_name}
         )
         response.raise_for_status()
         state = response.json()
-        
+
         # Update session_id if changed
         if "session_id" in state:
             self.session_id = state["session_id"]
-        
+
+        # If bot needs to move, wait then trigger bot_move separately
+        # This allows the frontend watcher to see the intermediate state
+        if state.get("bot_pending"):
+            time.sleep(1.0)
+            bot_url = f"{self.backend_url}/api/game/{self.game_name}/bot_move"
+            bot_response = requests.get(
+                bot_url,
+                params={"session_id": self.session_id, "player_name": self.player_name}
+            )
+            bot_response.raise_for_status()
+            state = bot_response.json()
+            if "session_id" in state:
+                self.session_id = state["session_id"]
+
         return state
     
     def reset_game(self) -> dict[str, Any]:
@@ -129,11 +156,11 @@ class Agent:
             Initial game state dictionary
         """
         url = f"{self.backend_url}/api/game/{self.game_name}/reset"
-        params = {}
+        params = {"player_name": self.player_name}
         if self.session_id:
             params["session_id"] = self.session_id
-        
-        response = requests.get(url, params=params if params else None)
+
+        response = requests.get(url, params=params)
         response.raise_for_status()
         state = response.json()
         
@@ -146,41 +173,75 @@ class Agent:
         self.step_count = 0
         return state
     
+    # ── LLM response logging ─────────────────────────────────────────
+
+    def _ensure_llm_log(self) -> None:
+        """Create LLM response log file (same name as game log, in llm_logs/)."""
+        if self._llm_log_writer is not None:
+            return
+        if not self.session_id:
+            return
+        game_dir = LLM_LOG_DIR / self.game_name
+        game_dir.mkdir(parents=True, exist_ok=True)
+        safe_sid = self.session_id.replace("/", "_").replace("\\", "_")
+        log_path = game_dir / f"{safe_sid}.csv"
+        self._llm_log_file = open(log_path, "w", encoding="utf-8", newline="")
+        self._llm_log_writer = csv.writer(self._llm_log_file)
+        self._llm_log_writer.writerow(["step", "raw_response", "parsed_action", "fallback", "valid_actions"])
+
+    def _write_llm_log(self, step: int) -> None:
+        """Write one LLM response entry."""
+        self._ensure_llm_log()
+        if self._llm_log_writer is None:
+            return
+        raw = getattr(self.reasoning, "last_raw_response", "")
+        action = getattr(self.reasoning, "last_action", "")
+        fallback = getattr(self.reasoning, "last_fallback", False)
+        valid = getattr(self, "_last_valid_actions", [])
+        self._llm_log_writer.writerow([step, raw, action, fallback, "|".join(valid)])
+        self._llm_log_file.flush()
+
+    # ── Step logic ────────────────────────────────────────────────────
+
     def step(self) -> dict[str, Any]:
         """
         Execute one step: get state, reason about action, apply action.
-        
+
         Returns:
             Updated game state after action
         """
         # Step 1: Get current state
         state = self.get_state()
-        
+
         # Check if game is over
         if state.get("game_over", False):
             print(f"Game over! Final score: {state.get('score', 0)}")
             return state
-        
+
         # Step 2: Get valid actions
         valid_actions = self.get_valid_actions()
-        
+        self._last_valid_actions = valid_actions
+
         if not valid_actions:
             print("No valid actions available")
             return state
-        
+
         # Step 3: Get game rules
         rules = self.get_rules()
-        
+
         # Step 4: Use reasoning engine to decide on action
         action = self.reasoning.reason(state, valid_actions, rules)
-        
-        # Step 4: Apply the action
+
+        # Step 5: Log LLM response
+        self._write_llm_log(self.step_count + 1)
+
+        # Step 6: Apply the action
         print(f"Step {self.step_count + 1}: Choosing action '{action}'")
         new_state = self.apply_action(action)
-        
+
         self.step_count += 1
         print(f"  Score: {new_state.get('score', 0)}, Game Over: {new_state.get('game_over', False)}")
-        
+
         return new_state
     
     def run_loop(self, max_steps: int | None = None, delay: float = 1.0):

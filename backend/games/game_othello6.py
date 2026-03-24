@@ -1,9 +1,11 @@
-"""Othello (Reversi) — human (1, Black) vs. bot (2, White).
+"""Othello 6×6 — human (1, Black) vs. bot (2, White).
+
+Smaller board variant for faster games and LLM testing.
 
 Difficulty levels:
   easy   – random valid move
-  medium – Minimax depth 3 + positional weight matrix
-  hard   – Minimax depth 5 + positional weights + mobility heuristic
+  medium – Minimax depth 4 + positional weight matrix
+  hard   – Minimax depth 6 + positional weights + mobility heuristic
 """
 
 from __future__ import annotations
@@ -14,23 +16,21 @@ from typing import Any
 
 from .base import BaseGame
 
-SIZE = 8
+SIZE = 6
 EMPTY = 0
 HUMAN = 1   # Black, moves first
 BOT = 2     # White
 
 DIRECTIONS = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
 
-# Classic positional weight table: corners best, X-squares worst
+# Positional weight table for 6×6: corners best, X-squares worst
 WEIGHTS = [
-    [100, -20, 10,  5,  5, 10, -20, 100],
-    [-20, -50, -2, -2, -2, -2, -50, -20],
-    [ 10,  -2,  1,  1,  1,  1,  -2,  10],
-    [  5,  -2,  1,  1,  1,  1,  -2,   5],
-    [  5,  -2,  1,  1,  1,  1,  -2,   5],
-    [ 10,  -2,  1,  1,  1,  1,  -2,  10],
-    [-20, -50, -2, -2, -2, -2, -50, -20],
-    [100, -20, 10,  5,  5, 10, -20, 100],
+    [100, -20, 10, 10, -20, 100],
+    [-20, -50, -2, -2, -50, -20],
+    [ 10,  -2,  1,  1,  -2,  10],
+    [ 10,  -2,  1,  1,  -2,  10],
+    [-20, -50, -2, -2, -50, -20],
+    [100, -20, 10, 10, -20, 100],
 ]
 
 VALID_DIFFICULTIES = {"easy", "medium", "hard"}
@@ -113,11 +113,9 @@ def _minimax(
     if not moves:
         opp_moves = _valid_moves(board, _opp(current))
         if not opp_moves:
-            # Terminal: count pieces
             bc = _count(board, bot_piece)
             hc = _count(board, _opp(bot_piece))
             return float(bc - hc) * 1000
-        # Pass — switch side, don't decrement depth
         return _minimax(board, depth, alpha, beta, not maximizing, bot_piece, use_mobility)
 
     if depth == 0:
@@ -147,8 +145,8 @@ def _minimax(
 
 # ── Game class ────────────────────────────────────────────────────────
 
-class Othello(BaseGame):
-    name = "othello"
+class Othello6(BaseGame):
+    name = "othello6"
 
     def __init__(self):
         self.difficulty = "hard"
@@ -194,7 +192,6 @@ class Othello(BaseGame):
         self.board = _apply_move(self.board, r, c, HUMAN)
         self._record_log(f"human:{r},{c}", self.get_state())
         self._resolve_game_over()
-        # Signal frontend that bot still needs to move
         state = self.get_state()
         state["bot_pending"] = not self.game_over
         return state
@@ -238,17 +235,17 @@ class Othello(BaseGame):
         return [f"{r} {c}" for r, c in _valid_moves(self.board, HUMAN)]
 
     def get_rules(self) -> str:
-        return """Othello (Reversi) Game Rules
+        return """Othello 6×6 (Mini Reversi) Game Rules
 
 OBJECTIVE:
-Place pieces on an 8×8 board to outflank and flip your opponent's pieces. The player with the most pieces when the game ends wins.
+Place pieces on a 6×6 board to outflank and flip your opponent's pieces. The player with the most pieces when the game ends wins.
 
 PLAYERS:
 - You are Black (displayed as "1" on the board). You move first.
 - The bot is White (displayed as "2" on the board). It moves automatically after you.
 
 BOARD:
-- 8×8 grid. Empty cells are 0, your pieces are 1, bot pieces are 2.
+- 6×6 grid. Empty cells are 0, your pieces are 1, bot pieces are 2.
 - The game starts with 4 pieces in the center: two of each color in a diagonal pattern.
 
 HOW FLIPPING WORKS:
@@ -257,20 +254,19 @@ HOW FLIPPING WORKS:
 
 AVAILABLE ACTIONS:
 - You will be given a list of valid moves. You MUST pick exactly one from that list — do NOT invent your own position.
-- Action format: "row col" (0-indexed). For example, "2 3" means row 2, column 3.
+- Action format: "row col" (0-indexed). For example, "1 3" means row 1, column 3.
 - Only positions that flip at least one opponent piece are valid moves.
 
 STRATEGY TIPS:
-- Corners (0 0, 0 7, 7 0, 7 7) are extremely valuable — they can never be flipped once taken.
-- Avoid placing pieces on squares adjacent to empty corners (especially diagonal neighbors), as this gives your opponent access to the corner.
-- Mobility matters: try to keep more moves available for yourself while restricting your opponent's options.
-- In the early game, having fewer pieces can actually be advantageous (fewer pieces = harder to outflank).
+- Corners (0 0, 0 5, 5 0, 5 5) are extremely valuable — they can never be flipped once taken.
+- Avoid placing pieces on squares adjacent to empty corners (especially diagonal neighbors).
+- Mobility matters: keep more moves available for yourself while restricting your opponent.
 
 GAME OVER CONDITIONS:
 - The game ends when neither player has a valid move (usually when the board is full).
 - The player with more pieces wins. Equal counts result in a draw.
 
-Respond with ONLY "row col" (e.g., "2 3")."""
+Respond with ONLY "row col" (e.g., "1 3")."""
 
     # ── Helpers ───────────────────────────────────────────────────────
 
@@ -299,7 +295,8 @@ Respond with ONLY "row col" (e.g., "2 3")."""
         if self.difficulty == "easy":
             return random.choice(moves)
 
-        depth = 3 if self.difficulty == "medium" else 5
+        # 6×6 board is smaller, can search deeper
+        depth = 4 if self.difficulty == "medium" else 6
         use_mobility = (self.difficulty == "hard")
 
         best_score = -math.inf

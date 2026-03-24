@@ -162,11 +162,40 @@ class TicTacToe(BaseGame):
         return [f"{r} {c}" for r, c in _valid_cells(self.board)]
 
     def get_rules(self) -> str:
-        return (
-            "Tic Tac Toe 3×3. You are X (1), bot is O (2). "
-            "Take turns placing marks; first to get 3 in a row wins. "
-            "Action: 'row col' (0-indexed, e.g. '1 1' for center)."
-        )
+        return """Tic Tac Toe Game Rules
+
+OBJECTIVE:
+Place your marks on a 3×3 grid. First player to get 3 in a row (horizontally, vertically, or diagonally) wins.
+
+PLAYERS:
+- You are X (displayed as "1" on the board). You move first.
+- The bot is O (displayed as "2" on the board). It moves automatically after you.
+
+BOARD:
+- 3×3 grid. Empty cells are 0, your marks are 1, bot marks are 2.
+- Positions are referenced by row and column (0-indexed):
+    (0,0) | (0,1) | (0,2)
+    ------+-------+------
+    (1,0) | (1,1) | (1,2)
+    ------+-------+------
+    (2,0) | (2,1) | (2,2)
+
+AVAILABLE ACTIONS:
+- You will be given a list of valid positions. You MUST pick exactly one from that list — do NOT invent your own.
+- Action format: "row col" (e.g., "1 1" for the center cell).
+- You can only place on empty cells (value 0).
+
+STRATEGY TIPS:
+- The center (1 1) is the strongest opening move.
+- Corners (0 0, 0 2, 2 0, 2 2) are the second best positions.
+- Try to create a "fork" — two ways to win simultaneously — so the opponent can only block one.
+
+GAME OVER CONDITIONS:
+- You win by getting 3 of your marks in a row (any direction).
+- Bot wins by getting 3 of its marks in a row.
+- Draw if all 9 cells are filled with no winner.
+
+Respond with ONLY "row col" (e.g., "1 1")."""
 
     # ── Helpers ───────────────────────────────────────────────────────
 
