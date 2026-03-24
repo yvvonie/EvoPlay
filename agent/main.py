@@ -192,7 +192,13 @@ Examples:
         default=config.get_auto_open_browser(),
         help="Automatically open browser for visualization",
     )
-    
+    parser.add_argument(
+        "--difficulty",
+        type=str,
+        default=None,
+        help="Difficulty level for bot games (easy, medium, hard)",
+    )
+
     return parser.parse_args()
 
 
@@ -244,33 +250,39 @@ def main():
         game_name=args.game,
         session_id=args.session_id,
     )
-    
-    # Initialize session by calling reset (this will create a new game session)
+
+    # Always reset to initialize session (and set difficulty if provided)
+    print("\nInitializing session...")
+    import requests as _req
+    reset_params = {}
+    if agent.session_id:
+        reset_params["session_id"] = agent.session_id
+    reset_params["player_name"] = agent.player_name
+    if args.difficulty:
+        reset_params["difficulty"] = args.difficulty
+    reset_url = f"{args.backend_url}/api/game/{args.game}/reset"
+    _reset_res = _req.get(reset_url, params=reset_params)
+    _reset_state = _reset_res.json()
+    if "session_id" in _reset_state:
+        agent.session_id = _reset_state["session_id"]
+    agent.step_count = 0
+
+    # Print watch URL
+    watch_url = f"{args.frontend_url}?game={args.game}&session_id={agent.session_id}"
+    print(f"\n{'='*60}")
+    print(f"  Game:       {args.game}")
+    print(f"  Model:      {args.model}")
+    print(f"  Difficulty: {args.difficulty or 'default'}")
+    print(f"  Session:    {agent.session_id}")
+    print(f"  Watch URL:  {watch_url}")
+    print(f"{'='*60}\n")
+
     if args.auto_open_browser:
-        print("\nInitializing session...")
         try:
-            state = agent.reset_game()  # Use reset_game to initialize session
-            agent_session_id = agent.session_id
-            if agent_session_id:
-                # Construct the frontend URL with session_id and game parameters
-                frontend_url_with_params = f"{args.frontend_url}?game={args.game}&session_id={agent_session_id}"
-                print(f"\n{'='*50}")
-                print(f"Opening browser to visualize agent session...")
-                print(f"Session ID: {agent_session_id}")
-                print(f"Game: {args.game}")
-                print(f"URL: {frontend_url_with_params}")
-                print(f"{'='*50}\n")
-                
-                # Wait a moment to ensure backend is ready
-                time.sleep(0.5)
-                
-                # Open browser
-                webbrowser.open(frontend_url_with_params)
-            else:
-                print("Warning: Could not get session_id, browser will not be opened.")
+            time.sleep(0.5)
+            webbrowser.open(watch_url)
         except Exception as e:
             print(f"Warning: Failed to open browser: {e}")
-            print("You can manually open the frontend and use the session_id from the logs.")
     
     # Run the agent loop
     agent.run_loop(max_steps=max_steps, delay=args.delay)

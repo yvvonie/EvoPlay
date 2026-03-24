@@ -1,9 +1,13 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { getSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
+
+defineProps({ playerName: { type: String, default: "" } });
 
 const API = "/api/game/fourinarow";
 const sessionId = ref(null);
+const isWatching = ref(false);  // true when observing an agent session
+let pollTimer = null;
 
 const board = ref([]);
 const gameOver = ref(false);
@@ -31,12 +35,33 @@ async function fetchState() {
   const urlSid = setSessionIdFromUrl("fourinarow");
   const sid = urlSid || getSessionId("fourinarow");
   sessionId.value = sid;
+  // If session_id came from URL, enter watch mode (polling)
+  if (urlSid) {
+    isWatching.value = true;
+    startPolling();
+  }
   const res = await fetch(addSessionToUrl(`${API}/state`, sid));
   applyState(await res.json());
 }
 
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    const sid = sessionId.value;
+    if (!sid) return;
+    const res = await fetch(addSessionToUrl(`${API}/state`, sid));
+    const data = await res.json();
+    applyState(data);
+    if (data.game_over) stopPolling();
+  }, 1000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
 async function dropPiece(col) {
-  if (gameOver.value || isThinking.value) return;
+  if (gameOver.value || isThinking.value || isWatching.value) return;
   if (!validActions.value.includes(String(col))) return;
   isThinking.value = true;
   error.value = "";
@@ -84,6 +109,7 @@ function isBotLastCol(c) {
 }
 
 onMounted(fetchState);
+onUnmounted(stopPolling);
 </script>
 
 <template>
@@ -109,6 +135,7 @@ onMounted(fetchState);
         <span v-else class="msg-draw">Draw!</span>
       </template>
       <span v-else-if="isThinking" class="msg-think">Bot is thinking…</span>
+      <span v-else-if="isWatching" class="msg-watch">Watching agent play…</span>
       <span v-else class="msg-turn">Your turn — click a column</span>
     </div>
 
@@ -216,6 +243,7 @@ onMounted(fetchState);
 .msg-draw  { color: #94a3b8; }
 .msg-turn  { color: #e2e8f0; }
 .msg-think { color: #facc15; }
+.msg-watch { color: #38bdf8; }
 
 /* Drop arrows row */
 .arrows {

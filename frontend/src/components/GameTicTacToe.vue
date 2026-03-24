@@ -1,6 +1,8 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { getSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
+
+defineProps({ playerName: { type: String, default: "" } });
 
 const API = "/api/game/tictactoe";
 const sessionId = ref(null);
@@ -15,6 +17,8 @@ const validActions = ref([]);
 const error = ref("");
 const isThinking = ref(false);
 const difficulty = ref("hard");
+const isWatching = ref(false);
+let pollTimer = null;
 
 const DIFFICULTIES = [
   { value: "easy",   label: "Easy",   desc: "Random moves" },
@@ -28,12 +32,29 @@ async function fetchState() {
   const urlSid = setSessionIdFromUrl("tictactoe");
   const sid = urlSid || getSessionId("tictactoe");
   sessionId.value = sid;
+  if (urlSid) { isWatching.value = true; startPolling(); }
   const res = await fetch(addSessionToUrl(`${API}/state`, sid));
   applyState(await res.json());
 }
 
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    const sid = sessionId.value;
+    if (!sid) return;
+    const res = await fetch(addSessionToUrl(`${API}/state`, sid));
+    const data = await res.json();
+    applyState(data);
+    if (data.game_over) stopPolling();
+  }, 1000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
 async function placeMark(r, c) {
-  if (gameOver.value || isThinking.value) return;
+  if (gameOver.value || isThinking.value || isWatching.value) return;
   if (!validActions.value.includes(`${r} ${c}`)) return;
   isThinking.value = true;
   error.value = "";
@@ -91,6 +112,7 @@ function isClickable(r, c) {
 }
 
 onMounted(fetchState);
+onUnmounted(stopPolling);
 </script>
 
 <template>

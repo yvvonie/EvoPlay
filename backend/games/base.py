@@ -39,12 +39,18 @@ class BaseGame(ABC):
     
     # Session ID for log file naming (set by backend when creating game instance)
     _session_id: str | None = None
+    # Player name associated with this session
+    _player_name: str | None = None
 
     # ── Log internals ───────────────────────────────────────────────
 
     def set_session_id(self, session_id: str) -> None:
         """Set session ID for this game instance (used for log file naming)."""
         self._session_id = session_id
+
+    def set_player_name(self, player_name: str) -> None:
+        """Set player name for this game instance (recorded in logs)."""
+        self._player_name = player_name
 
     def _reset_log(self) -> None:
         """Initialise (or reset) the in-memory log. Log file is created lazily on first write."""
@@ -61,6 +67,11 @@ class BaseGame(ABC):
         self._log_file = None
         self._log_path = None
 
+        # Increment round counter so each game gets a unique log file
+        if not hasattr(self, "_round"):
+            self._round = 0
+        self._round += 1
+
     def _ensure_log_file(self) -> None:
         """Create log file if it doesn't exist yet. Called lazily on first log entry."""
         if self._log_file is not None:
@@ -74,7 +85,8 @@ class BaseGame(ABC):
             # Use session_id as filename (sanitize for filesystem)
             # Replace characters that might be problematic in filenames
             safe_session_id = self._session_id.replace("/", "_").replace("\\", "_")
-            log_filename = f"{safe_session_id}.csv"
+            rd = getattr(self, "_round", 1)
+            log_filename = f"{safe_session_id}_r{rd}.csv"
         
         game_log_dir = LOG_DIR / self.name
         game_log_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +95,7 @@ class BaseGame(ABC):
         
         # Write CSV header
         writer = csv.writer(self._log_file)
-        writer.writerow(["step", "time", "action", "score", "game_over", "board"])
+        writer.writerow(["step", "time", "game", "player", "difficulty", "action", "score", "game_over", "board"])
 
     def _record_log(self, action: str, state: dict[str, Any]) -> None:
         """Append one log entry to memory and flush to disk."""
@@ -110,9 +122,13 @@ class BaseGame(ABC):
             writer = csv.writer(self._log_file)
             # Convert board to JSON string for CSV storage
             board_str = json.dumps(entry["board"], ensure_ascii=False) if entry["board"] else ""
+            difficulty = getattr(self, "difficulty", "")
             writer.writerow([
                 entry["step"],
                 entry["time"],
+                self.name,
+                self._player_name or "",
+                difficulty,
                 entry["action"],
                 entry["score"],
                 entry["game_over"],

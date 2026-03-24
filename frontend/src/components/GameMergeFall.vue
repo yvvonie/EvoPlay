@@ -3,6 +3,8 @@ import { ref, reactive, onMounted, onUnmounted, nextTick } from "vue";
 import GameLog from "./GameLog.vue";
 import { getSessionId, resetSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
 
+defineProps({ playerName: { type: String, default: "" } });
+
 const API = "/api/game/mergefall";
 const logRef = ref(null);
 const sessionId = ref(null);

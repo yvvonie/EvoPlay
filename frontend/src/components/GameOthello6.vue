@@ -4,7 +4,7 @@ import { getSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/ses
 
 defineProps({ playerName: { type: String, default: "" } });
 
-const API = "/api/game/othello";
+const API = "/api/game/othello6";
 const sessionId = ref(null);
 
 const board = ref([]);
@@ -20,11 +20,11 @@ const hoverCell = ref(null);   // [r, c]
 const isThinking = ref(false);
 const difficulty = ref("hard");
 const isWatching = ref(false);
-const animCells = ref(new Set()); // "r,c" keys for cells currently animating
-const newCells = ref(new Set());  // "r,c" keys for newly placed discs
+const animCells = ref(new Set());
+const newCells = ref(new Set());
 let pollTimer = null;
 
-const SIZE = 8;
+const SIZE = 6;
 
 const DIFFICULTIES = [
   { value: "easy",   label: "Easy",   desc: "Random moves" },
@@ -35,8 +35,8 @@ const DIFFICULTIES = [
 // ── API ───────────────────────────────────────────────────────────────
 
 async function fetchState() {
-  const urlSid = setSessionIdFromUrl("othello");
-  const sid = urlSid || getSessionId("othello");
+  const urlSid = setSessionIdFromUrl("othello6");
+  const sid = urlSid || getSessionId("othello6");
   sessionId.value = sid;
   if (urlSid) { isWatching.value = true; startPolling(); }
   const res = await fetch(addSessionToUrl(`${API}/state`, sid));
@@ -64,9 +64,9 @@ async function placeDisc(r, c) {
   if (!isValidMove(r, c)) return;
   isThinking.value = true;
   error.value = "";
-  const sid = sessionId.value || getSessionId("othello");
+  const sid = sessionId.value || getSessionId("othello6");
 
-  // Phase 1: human move — render board change immediately
+  // Phase 1: human move
   const res1 = await fetch(addSessionToUrl(`${API}/action?move=${r}%20${c}`, sid));
   const data1 = await res1.json();
   if (data1.error) { error.value = data1.error; isThinking.value = false; return; }
@@ -87,7 +87,7 @@ async function resetGame(newDifficulty) {
   error.value = "";
   hoverCell.value = null;
   isThinking.value = false;
-  const sid = sessionId.value || getSessionId("othello");
+  const sid = sessionId.value || getSessionId("othello6");
   const res = await fetch(addSessionToUrl(`${API}/reset?difficulty=${difficulty.value}`, sid));
   applyState(await res.json());
 }
@@ -97,7 +97,6 @@ function applyState(state) {
   const newBoard = state.board || [];
   const oldBoard = board.value;
 
-  // Diff boards to find flipped and newly placed cells
   const flipped = new Set();
   const placed = new Set();
   if (oldBoard.length === newBoard.length && oldBoard.length > 0) {
@@ -108,9 +107,9 @@ function applyState(state) {
         if (o !== n) {
           const key = `${r},${c}`;
           if (o !== 0 && n !== 0) {
-            flipped.add(key); // color changed = flip
+            flipped.add(key);
           } else if (o === 0 && n !== 0) {
-            placed.add(key);  // empty → piece = new placement
+            placed.add(key);
           }
         }
       }
@@ -118,7 +117,6 @@ function applyState(state) {
   }
   animCells.value = flipped;
   newCells.value = placed;
-  // Clear animation classes after animation completes
   if (flipped.size > 0 || placed.size > 0) {
     setTimeout(() => { animCells.value = new Set(); newCells.value = new Set(); }, 500);
   }
@@ -212,7 +210,6 @@ onUnmounted(stopPolling);
           @mouseenter="hoverCell = [r, c]"
           @mouseleave="hoverCell = null"
         >
-          <!-- Placed disc -->
           <div
             v-if="cell !== 0"
             class="disc"
@@ -222,7 +219,6 @@ onUnmounted(stopPolling);
               newCells.has(`${r},${c}`) ? 'disc-pop' : '',
             ]"
           />
-          <!-- Valid move hint -->
           <div
             v-else-if="isValidMove(r, c) && !gameOver && !isThinking"
             class="hint"
@@ -320,7 +316,7 @@ onUnmounted(stopPolling);
 .disc-icon.black { background: #1a1a1a; border: 2px solid #444; }
 .disc-icon.white { background: #f0f0f0; border: 2px solid #ccc; }
 
-/* Board */
+/* Board — larger cells for 6×6 */
 .board {
   background: #166534;
   border-radius: 8px;
@@ -335,8 +331,8 @@ onUnmounted(stopPolling);
   gap: 2px;
 }
 .cell {
-  width: 46px;
-  height: 46px;
+  width: 58px;
+  height: 58px;
   background: #15803d;
   border-radius: 3px;
   display: flex;
@@ -350,8 +346,8 @@ onUnmounted(stopPolling);
 
 /* Disc */
 .disc {
-  width: 38px;
-  height: 38px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   transition: transform 0.15s;
 }
@@ -384,15 +380,15 @@ onUnmounted(stopPolling);
 
 /* Valid move hint dot */
 .hint {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.25);
   transition: all 0.1s;
 }
 .hint.hint-hover {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   background: rgba(0, 0, 0, 0.18);
 }
 

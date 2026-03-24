@@ -117,12 +117,36 @@ class FourInARow(BaseGame):
         return [str(c) for c in range(COLS) if self._is_valid(c)]
 
     def get_rules(self) -> str:
-        return (
-            f"Four in a Row ({ROWS}x{COLS}). "
-            "You are RED (1), bot is YELLOW (2). "
-            "Drop a piece into a column (0-6) by clicking. "
-            "First to get 4 in a row — horizontal, vertical, or diagonal — wins."
-        )
+        return """Four in a Row (Connect Four) Game Rules
+
+OBJECTIVE:
+Drop pieces into a 6-row × 7-column vertical grid. First player to connect 4 of their pieces in a row (horizontally, vertically, or diagonally) wins.
+
+PLAYERS:
+- You are player 1 (displayed as "1" on the board). You move first each turn.
+- The bot is player 2 (displayed as "2" on the board). It moves automatically after you.
+
+BOARD:
+- The board is a 6×7 grid. Row 0 is the top, row 5 is the bottom.
+- Empty cells are 0, your pieces are 1, bot pieces are 2.
+- Pieces obey gravity: they fall to the lowest empty cell in the chosen column.
+
+AVAILABLE ACTIONS:
+- You will be given a list of valid columns. You MUST pick exactly one from that list — do NOT invent your own.
+- Choose a column number from 0 to 6 (e.g., "3" to drop in the center column).
+- A column is only valid if it is not completely filled (row 0 is not occupied).
+
+STRATEGY TIPS:
+- Control the center column (column 3) for more connection opportunities.
+- Look for opportunities to create two-way threats (two ways to win).
+- Block the opponent when they have 3 in a row with an open end.
+
+GAME OVER CONDITIONS:
+- You win if you connect 4 of your pieces in any direction.
+- Bot wins if it connects 4 of its pieces.
+- Draw if the board is completely filled with no winner.
+
+Respond with ONLY the column number (e.g., "3")."""
 
     # ── Board helpers ─────────────────────────────────────────────────
 
