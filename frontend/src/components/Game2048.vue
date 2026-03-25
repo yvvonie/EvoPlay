@@ -15,6 +15,7 @@ const gameOver = ref(false);
 const won = ref(false);
 const validActions = ref([]);
 const error = ref("");
+const agentError = ref("");
 const lastAction = ref("");
 const difficulty = ref("medium");
 const maxTile = ref(0);
@@ -86,6 +87,7 @@ function applyState(state) {
   validActions.value = state.valid_actions || [];
   if (state.difficulty) difficulty.value = state.difficulty;
   if (state.max_tile !== undefined) maxTile.value = state.max_tile;
+  agentError.value = state.agent_error || "";
   
   // Stop polling if game is over
   if (state.game_over) {
@@ -215,6 +217,7 @@ function tileStyle(value) {
     <div v-if="won" class="banner won">You reached 2048!</div>
     <div v-if="gameOver" class="banner over">Game Over</div>
     <div v-if="error" class="banner error">{{ error }}</div>
+    <div v-if="agentError" class="agent-error">Agent Error: {{ agentError }}</div>
 
     <!-- Board -->
     <div class="board">
@@ -365,6 +368,18 @@ function tileStyle(value) {
 .banner.error {
   background: #f44;
   color: #fff;
+}
+
+.agent-error {
+  text-align: center;
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  background: #7f1d1d;
+  color: #fca5a5;
+  border: 1px solid #991b1b;
 }
 
 .board {

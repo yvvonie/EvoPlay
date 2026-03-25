@@ -16,6 +16,7 @@ const validActions = ref([]);
 const humanCount = ref(2);
 const botCount = ref(2);
 const error = ref("");
+const agentError = ref("");
 const hoverCell = ref(null);   // [r, c]
 const isThinking = ref(false);
 const difficulty = ref("hard");
@@ -130,6 +131,7 @@ function applyState(state) {
   humanCount.value = state.human_count ?? 2;
   botCount.value = state.bot_count ?? 2;
   if (state.difficulty) difficulty.value = state.difficulty;
+  agentError.value = state.agent_error || "";
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -234,6 +236,7 @@ onUnmounted(stopPolling);
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>
+    <div v-if="agentError" class="agent-error">Agent Error: {{ agentError }}</div>
 
     <!-- Legend -->
     <div class="legend">
@@ -407,6 +410,18 @@ onUnmounted(stopPolling);
 .btn-reset:hover { background: #475569; }
 
 .error-msg { color: #f87171; font-size: 0.85rem; }
+
+.agent-error {
+  text-align: center;
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  background: #7f1d1d;
+  color: #fca5a5;
+  border: 1px solid #991b1b;
+}
 
 /* Legend */
 .legend {

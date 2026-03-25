@@ -17,6 +17,7 @@ const nextTile = ref(2);
 const gameOver = ref(false);
 const validActions = ref([]);
 const error = ref("");
+const agentError = ref("");
 const lastGain = ref(0);
 const prevScore = ref(0);
 const gainKey = ref(0);
@@ -139,6 +140,7 @@ function applyState(state, animate = false, oldBoard = null, dropCol = -1) {
   gameOver.value = state.game_over;
   validActions.value = state.valid_actions || [];
   if (state.difficulty) difficulty.value = state.difficulty;
+  agentError.value = state.agent_error || "";
 
   initAnimGrid();
 
@@ -347,6 +349,7 @@ function particleStyle(p) {
     <!-- Status -->
     <div v-if="gameOver" class="banner over">Game Over!</div>
     <div v-if="error && !gameOver" class="banner error">{{ error }}</div>
+    <div v-if="agentError" class="agent-error">Agent Error: {{ agentError }}</div>
 
     <!-- Column drop buttons -->
     <div class="drop-buttons" :style="{ '--cols': width }">
@@ -527,6 +530,18 @@ function particleStyle(p) {
 
 .banner.over { background: #f87171; color: #fff; }
 .banner.error { background: #fbbf24; color: #1e293b; }
+
+.agent-error {
+  text-align: center;
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  background: #7f1d1d;
+  color: #fca5a5;
+  border: 1px solid #991b1b;
+}
 
 /* ── Drop buttons ──────────────────────────────────────────────── */
 
