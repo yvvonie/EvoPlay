@@ -126,9 +126,9 @@ Pick the best action. Respond with ONLY the action string, nothing else."""
         except Exception as e:
             print(f"Error calling model ({self.llm.model}): {e}")
             self.last_raw_response = f"ERROR: {e}"
-            self.last_action = valid_actions[0] if valid_actions else ""
+            self.last_action = ""
             self.last_fallback = True
-            return self.last_action
+            raise RuntimeError(f"LLM call failed: {e}") from e
     
     def _format_board(self, board: Any) -> str:
         """Format board for display in prompt."""

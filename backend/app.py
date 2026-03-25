@@ -149,7 +149,9 @@ def game_state(name: str):
     if game is None:
         return jsonify({"error": f"Unknown game: {name}"}), 404
     state = game.get_state()
-    state["session_id"] = session_id  # Include session_id in response
+    state["session_id"] = session_id
+    if hasattr(game, "_agent_error") and game._agent_error:
+        state["agent_error"] = game._agent_error
     return jsonify(state)
 
 
@@ -237,6 +239,21 @@ def game_log(name: str):
     log_info = game.get_log_info()
     log_info["session_id"] = session_id
     return jsonify(log_info)
+
+
+@app.post("/api/game/<name>/agent_error")
+def game_agent_error(name: str):
+    """Record an agent error for a session (shown to frontend watchers)."""
+    game, session_id = _get_game(name, require_session=True)
+    if session_id is None:
+        return jsonify({"error": "Missing session_id"}), 400
+    if game is None:
+        return jsonify({"error": f"Unknown game: {name}"}), 404
+    data = request.get_json(silent=True) or {}
+    error_msg = data.get("error", "Unknown agent error")
+    game._agent_error = error_msg
+    log.warning("Agent error for game=%s session=%s: %s", name, session_id, error_msg)
+    return jsonify({"ok": True})
 
 
 @app.get("/api/game/<name>/rules")

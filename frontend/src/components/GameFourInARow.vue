@@ -16,6 +16,7 @@ const winner = ref(null);
 const validActions = ref([]);
 const lastBotCol = ref(null);
 const error = ref("");
+const agentError = ref("");
 const hoverCol = ref(null);
 const isThinking = ref(false);
 const difficulty = ref("hard");
@@ -91,6 +92,7 @@ function applyState(state) {
   winner.value = state.winner;
   validActions.value = state.valid_actions || [];
   if (state.difficulty) difficulty.value = state.difficulty;
+  agentError.value = state.agent_error || "";
   if (state.last_bot_col !== null && state.last_bot_col !== undefined) {
     lastBotCol.value = state.last_bot_col;
   }
@@ -186,6 +188,7 @@ onUnmounted(stopPolling);
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
+    <div v-if="agentError" class="agent-error">Agent Error: {{ agentError }}</div>
 
     <!-- Legend -->
     <div class="legend">
@@ -324,6 +327,18 @@ onUnmounted(stopPolling);
 .error {
   color: #f87171;
   font-size: 0.85rem;
+}
+
+.agent-error {
+  text-align: center;
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  background: #7f1d1d;
+  color: #fca5a5;
+  border: 1px solid #991b1b;
 }
 
 /* Legend */

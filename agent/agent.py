@@ -308,6 +308,20 @@ class Agent:
         
         except KeyboardInterrupt:
             print("\n\nAgent loop interrupted by user")
+        except RuntimeError as e:
+            print(f"\n\nAgent stopped due to error: {e}")
+            self._notify_error(str(e))
         except Exception as e:
             print(f"\n\nError in agent loop: {e}")
+            self._notify_error(str(e))
             raise
+
+    def _notify_error(self, error_msg: str) -> None:
+        """Notify backend about agent error so frontend watchers can see it."""
+        if not self.session_id:
+            return
+        try:
+            url = f"{self.backend_url}/api/game/{self.game_name}/agent_error"
+            requests.post(url, json={"error": error_msg}, params={"session_id": self.session_id})
+        except Exception:
+            pass  # Best effort
