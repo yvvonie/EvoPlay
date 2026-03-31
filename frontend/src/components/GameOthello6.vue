@@ -134,7 +134,7 @@ function applyState(state) {
   // Auto-pass when human has no valid moves but game isn't over
   if (!state.game_over && !isWatching.value && !isThinking.value
       && validActions.value.length === 1 && validActions.value[0] === "pass") {
-    setTimeout(() => autoPass(), 600);
+    setTimeout(() => autoPass(), 1200);
   }
 }
 
@@ -148,7 +148,7 @@ async function autoPass() {
   const sid = sessionId.value || getSessionId("othello6");
 
   // Wait so user can read the message
-  await new Promise(resolve => setTimeout(resolve, 800));
+  await new Promise(resolve => setTimeout(resolve, 1500));
 
   // Send pass action
   const res1 = await fetch(addSessionToUrl(`${API}/action?move=pass`, sid));
@@ -181,7 +181,7 @@ async function botMoveLoop(sid) {
     // Check if human still needs to pass
     if (validActions.value.length === 1 && validActions.value[0] === "pass") {
       passMessage.value = "You have no valid moves — pass!";
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
       const passRes = await fetch(addSessionToUrl(`${API}/action?move=pass`, sid));
       const passData = await passRes.json();

@@ -63,6 +63,7 @@ class MergeFall(BaseGame):
         self.next_tile: int = 2
         self.difficulty: str = "hard"
         self._active_pos: Tuple[int, int] | None = None
+        self._last_tile: int = 0  # Track last spawned tile for anti-repeat
         self._reset_log()
         self.reset()
 
@@ -108,8 +109,8 @@ class MergeFall(BaseGame):
     def valid_actions(self) -> list[str]:
         if self.game_over:
             return []
-        # All columns are always valid — dropping into a full column = overflow = game over.
-        return ["drop %d" % c for c in range(self.width)]
+        # A column is valid only if the top visible row (row 1, since row 0 is overflow) is empty
+        return ["drop %d" % c for c in range(self.width) if self.board[1][c] == 0]
     
     def get_rules(self) -> str:
         """Return the game rules description."""
@@ -162,11 +163,16 @@ Note: Even if a column looks full, dropping into it might trigger merges that cl
 
         # Check if column is completely full (no empty cell even in overflow row)
         if self.board[0][col] != 0:
-            # Truly no room at all — cannot even place the tile
-            self.game_over = True
             state = self.get_state()
-            state["error"] = "Column %d has no room. Game over." % col
+            state["error"] = "Column %d is full! Choose another column." % col
             return state
+
+        # If visible top row is occupied, check if dropping would trigger a merge
+        if self.board[1][col] != 0:
+            if not self._would_merge_on_drop(col, self.next_tile):
+                state = self.get_state()
+                state["error"] = "Column %d is full and no merge possible. Choose another column." % col
+                return state
 
         # Drop the tile (may land in overflow row 0, that's OK for now)
         r = self._drop_active_into_column(col, self.next_tile)
@@ -226,13 +232,22 @@ Note: Even if a column looks full, dropping into it might trigger merges that cl
         raise RuntimeError("Column should not be full.")
 
     def _resolve_active_drop(self) -> int:
-        """Resolve gravity + absorption chains. Return score gained."""
+        """Resolve gravity + absorption chains. Return score gained.
+
+        Logic:
+        1. Active tile absorbs direct same-value neighbors
+        2. Gravity applies — tiles fall down
+        3. Any tile that MOVED during gravity and has same-value neighbors
+           becomes the new active tile and absorbs them
+        4. Repeat until stable
+        """
         if self._active_pos is None:
             return 0
 
-        combo = 0
+        total_score = 0
         while True:
-            self._apply_gravity()
+            # Only let the active tile fall (not all tiles)
+            self._settle_active_tile()
             if self._active_pos is None:
                 break
 
@@ -251,10 +266,89 @@ Note: Even if a column looks full, dropping into it might trigger merges that cl
             n = 1 + len(neighbors)
             new_v = v * (1 << self._ceil_log2(n))
             self.board[ar][ac] = -new_v
-            combo += 1
+            total_score += new_v
 
-        final_value = self._finalize_active_and_get_value()
-        return 0 if combo == 0 else final_value * combo
+        # Finalize active marker
+        self._finalize_active()
+
+        # Now apply full gravity and handle cascades from fallen tiles
+        total_score += self._resolve_gravity_cascades()
+        return total_score
+
+    def _settle_active_tile(self) -> None:
+        """Let only the active tile fall down to the lowest empty cell in its column."""
+        if self._active_pos is None:
+            return
+        ar, ac = self._active_pos
+        v = self.board[ar][ac]
+        if v == 0:
+            self._active_pos = None
+            return
+        # Find lowest empty cell below active in the same column
+        lowest = ar
+        for r in range(ar + 1, self.height):
+            if self.board[r][ac] == 0:
+                lowest = r
+            else:
+                break
+        if lowest != ar:
+            self.board[ar][ac] = 0
+            self.board[lowest][ac] = v
+            self._active_pos = (lowest, ac)
+
+    def _resolve_gravity_cascades(self) -> int:
+        """After active chain ends, apply gravity and check for merges.
+        First check fallen tiles, then scan all tiles for adjacent same-value pairs.
+        Repeat until stable."""
+        total_score = 0
+        while True:
+            before = [row[:] for row in self.board]
+            self._apply_gravity()
+
+            # Priority 1: check tiles that fell during gravity
+            merged_any = False
+            for c in range(self.width):
+                for r in range(self.height - 1, -1, -1):
+                    v = abs(self.board[r][c])
+                    if v != 0 and before[r][c] == 0:
+                        neighbors = self._same_value_neighbors(r, c, v)
+                        if neighbors:
+                            for nr, nc in neighbors:
+                                self.board[nr][nc] = 0
+                            n = 1 + len(neighbors)
+                            new_v = v * (1 << self._ceil_log2(n))
+                            self.board[r][c] = new_v
+                            total_score += new_v
+                            merged_any = True
+                            break
+                if merged_any:
+                    break
+
+            if merged_any:
+                continue
+
+            # Priority 2: scan entire board for any adjacent same-value pair
+            for r in range(self.height - 1, -1, -1):
+                for c in range(self.width):
+                    v = self.board[r][c]
+                    if v == 0:
+                        continue
+                    neighbors = self._same_value_neighbors(r, c, v)
+                    if neighbors:
+                        for nr, nc in neighbors:
+                            self.board[nr][nc] = 0
+                        n = 1 + len(neighbors)
+                        new_v = v * (1 << self._ceil_log2(n))
+                        self.board[r][c] = new_v
+                        total_score += new_v
+                        merged_any = True
+                        break
+                if merged_any:
+                    break
+
+            if not merged_any:
+                break
+        return total_score
 
     def _same_value_neighbors(
         self, r: int, c: int, target: int
@@ -284,6 +378,23 @@ Note: Even if a column looks full, dropping into it might trigger merges that cl
             for r in range(self.height):
                 self.board[r][c] = new_col[r]
         self._active_pos = new_active_pos
+
+    def _would_merge_on_drop(self, col: int, tile_value: int) -> bool:
+        """Check if dropping tile_value into col would trigger a merge (without modifying board)."""
+        # Find where the tile would land
+        land_row = None
+        for r in range(self.height - 1, -1, -1):
+            if self.board[r][col] == 0:
+                land_row = r
+                break
+        if land_row is None:
+            return False
+        # Check if any neighbor at that position has the same value
+        for nr, nc in ((land_row - 1, col), (land_row + 1, col), (land_row, col - 1), (land_row, col + 1)):
+            if 0 <= nr < self.height and 0 <= nc < self.width:
+                if abs(self.board[nr][nc]) == tile_value:
+                    return True
+        return False
 
     def _finalize_active(self) -> None:
         if self._active_pos is None:
@@ -326,6 +437,9 @@ Note: Even if a column looks full, dropping into it might trigger merges that cl
         if M < 2:
             return 2
 
+        # Cap the max spawnable tile at 128
+        M = min(M, 128)
+
         max_exp = int(math.log2(M))
         candidates = [1 << e for e in range(1, max_exp + 1)]
 
@@ -344,6 +458,9 @@ Note: Even if a column looks full, dropping into it might trigger merges that cl
                 w *= dp["high_pen"]
             if M >= 64 and v == M:
                 w *= dp["max_pen"]
+            # Hard mode: penalize repeating the same tile as last turn
+            if self.difficulty == "hard" and v == self._last_tile:
+                w *= 0.15
             weights.append(w)
 
         s = sum(weights)
@@ -354,6 +471,7 @@ Note: Even if a column looks full, dropping into it might trigger merges that cl
         for v, w in zip(candidates, weights):
             cum += w
             if x <= cum:
+                self._last_tile = v
                 return v
         return candidates[-1]
 

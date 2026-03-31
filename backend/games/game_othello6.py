@@ -309,7 +309,7 @@ Respond with ONLY "row col" (e.g., "1 3")."""
             return random.choice(moves)
 
         # 6×6 board is smaller, can search deeper
-        depth = 4 if self.difficulty == "medium" else 6
+        depth = 4 if self.difficulty == "medium" else 5
         use_mobility = (self.difficulty == "hard")
 
         best_score = -math.inf

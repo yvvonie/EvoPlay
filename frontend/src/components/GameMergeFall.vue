@@ -71,7 +71,7 @@ async function fetchState(isPolling = false) {
 }
 
 async function dropInColumn(col) {
-  if (dropping.value) return;
+  if (dropping.value || gameOver.value) return;
   dropping.value = true;
   error.value = "";
   prevScore.value = score.value;
@@ -83,8 +83,14 @@ async function dropInColumn(col) {
   const url = addSessionToUrl(`${API}/action?move=drop ${col}`, sid);
   const res = await fetch(url);
   const data = await res.json();
-  if (data.error) error.value = data.error;
   if (data.session_id) sessionId.value = data.session_id;
+
+  if (data.error) {
+    error.value = data.error;
+    setTimeout(() => { if (error.value === data.error) error.value = ""; }, 2000);
+    dropping.value = false;
+    return;
+  }
 
   const preMerge = data.pre_merge_board || oldBoard;
   const dropPos = data.drop_pos || null;
@@ -108,47 +114,6 @@ function ceilLog2(n) {
   return p;
 }
 
-function simGravity(b, h, w) {
-  // Apply gravity: tiles fall to bottom. Returns new board + active pos
-  const nb = b.map(row => [...row]);
-  let activePos = null;
-  for (let c = 0; c < w; c++) {
-    const vals = [];
-    for (let r = 0; r < h; r++) {
-      if (nb[r][c] !== 0) vals.push(nb[r][c]);
-    }
-    // Fill from bottom
-    let rr = h - 1;
-    for (let i = vals.length - 1; i >= 0; i--) {
-      nb[rr][c] = vals[i];
-      if (vals[i] < 0) activePos = [rr, c]; // negative = active
-      rr--;
-    }
-    for (let r = rr; r >= 0; r--) nb[r][c] = 0;
-  }
-  return { board: nb, activePos };
-}
-
-function simMergeChain(preMergeBoard) {
-  // Simulate the full merge chain, returning intermediate snapshots
-  // Each snapshot: { board (before this step's merge), absorbed: [{r,c}], activePos, newValue }
-  const h = preMergeBoard.length;
-  const w = preMergeBoard[0].length;
-
-  // Find the active tile (the dropped one) — it's the tile at drop_pos
-  // We mark it as negative to track it
-  let b = preMergeBoard.map(row => [...row]);
-
-  // Find active position: look for any cell, use dropPos
-  // Actually we need to find which cell is the "active" one
-  // Since we don't have negative markers in the visible board,
-  // we'll just simulate from scratch
-
-  const steps = [];
-
-  // Find the dropped tile position from dropPos (passed separately)
-  return steps; // Will be populated by animateFullSequence
-}
 
 function syncBoard(simBoard, h, w) {
   // Update board cells individually to avoid full-array replacement flicker
@@ -184,100 +149,174 @@ async function animateFullSequence(oldBoard, preMergeBoard, finalBoard, dropPos,
   }
   await sleep(350);
 
-  // ── Simulate merge chain step by step ──
-  // Use negative values to track active tile (mirrors backend)
+  // ── Phase 2: Active chain — only active tile settles, absorbs direct neighbors ──
   let simBoard = preMergeBoard.map(row => [...row]);
   let activePos = dropPos ? [dropPos[0], dropPos[1]] : null;
+  const cs = getCellSize();
 
-  if (activePos) {
-    // Mark active tile as negative
-    simBoard[activePos[0]][activePos[1]] = -simBoard[activePos[0]][activePos[1]];
+  // settleActive: only let the active tile fall (not other tiles)
+  function settleActive() {
+    if (!activePos) return;
+    let [ar, ac] = activePos;
+    let lowest = ar;
+    for (let r = ar + 1; r < h; r++) {
+      if (simBoard[r][ac] === 0) lowest = r;
+      else break;
+    }
+    if (lowest !== ar) {
+      simBoard[lowest][ac] = simBoard[ar][ac];
+      simBoard[ar][ac] = 0;
+      activePos = [lowest, ac];
+    }
   }
 
-  // Run merge chain with animation for each step
-  while (activePos) {
-    // Apply gravity first
-    const gResult = simGravity(simBoard, h, w);
-    simBoard = gResult.board;
-    activePos = gResult.activePos;
-
-    if (!activePos) break;
-
-    const [ar, ac] = activePos;
-    const activeVal = Math.abs(simBoard[ar][ac]);
-    if (activeVal === 0) break;
-
-    // Find same-value neighbors
-    const neighbors = [];
+  // findNeighbors: direct same-value neighbors of a cell
+  function findNeighbors(r, c, v) {
+    const nbrs = [];
     for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-      const nr = ar + dr, nc = ac + dc;
-      if (nr >= 0 && nr < h && nc >= 0 && nc < w) {
-        if (Math.abs(simBoard[nr][nc]) === activeVal) {
-          neighbors.push([nr, nc]);
-        }
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < h && nc >= 0 && nc < w && simBoard[nr][nc] === v) {
+        nbrs.push([nr, nc]);
       }
     }
+    return nbrs;
+  }
 
+  while (activePos) {
+    settleActive();
+    const [ar, ac] = activePos;
+    const activeVal = simBoard[ar][ac];
+    if (activeVal === 0) break;
+
+    const neighbors = findNeighbors(ar, ac, activeVal);
     if (neighbors.length === 0) break;
 
-    // Sync board cells individually (avoid full replacement flicker)
-    const cs = getCellSize();
+    // Animate absorb
     syncBoard(simBoard, h, w);
     initAnimGrid();
-
-    // Animate: neighbors fly toward active tile
     for (const [nr, nc] of neighbors) {
-      const flyX = (ac - nc) * cs.w;
-      const flyY = (ar - nr) * cs.h;
-      setAnim(nr, nc, "absorb", flyX, flyY);
+      setAnim(nr, nc, "absorb", (ac - nc) * cs.w, (ar - nr) * cs.h);
     }
     await sleep(300);
 
-    // Execute merge: remove neighbors, upgrade active tile
-    // First clear absorbed cells individually (they already flew away visually)
+    // Execute merge
     for (const [nr, nc] of neighbors) {
       simBoard[nr][nc] = 0;
       board.value[nr][nc] = 0;
     }
     const n = 1 + neighbors.length;
     const newVal = activeVal * (1 << ceilLog2(n));
-    simBoard[ar][ac] = -newVal; // keep active marker
+    simBoard[ar][ac] = newVal;
 
-    // Update only the merge target cell, then animate
     initAnimGrid();
     board.value[ar][ac] = newVal;
     setAnim(ar, ac, "merge");
     await sleep(300);
+  }
 
-    // Check for gravity — show tiles falling
-    const beforeGravity = simBoard.map(row => [...row]);
-    const gResult2 = simGravity(simBoard, h, w);
-    simBoard = gResult2.board;
-    activePos = gResult2.activePos;
+  // ── Phase 3: Gravity cascade — full gravity, fallen tiles absorb neighbors ──
+  // applyFullGravity: all tiles fall
+  function applyFullGravity() {
+    for (let c2 = 0; c2 < w; c2++) {
+      const vals = [];
+      for (let r2 = 0; r2 < h; r2++) {
+        if (simBoard[r2][c2] !== 0) vals.push(simBoard[r2][c2]);
+      }
+      let rr = h - 1;
+      for (let i = vals.length - 1; i >= 0; i--) { simBoard[rr][c2] = vals[i]; rr--; }
+      for (let r2 = rr; r2 >= 0; r2--) simBoard[r2][c2] = 0;
+    }
+  }
 
-    // Detect which tiles moved down and animate
-    let hasGravityMove = false;
+  while (true) {
+    const beforeGrav = simBoard.map(row => [...row]);
+    applyFullGravity();
+
+    // Find tiles that fell (new position was empty before)
+    let fallenMerge = null;
+    for (let c2 = 0; c2 < w && !fallenMerge; c2++) {
+      for (let r2 = h - 1; r2 >= 0 && !fallenMerge; r2--) {
+        const v = simBoard[r2][c2];
+        if (v !== 0 && beforeGrav[r2][c2] === 0) {
+          const nbrs = findNeighbors(r2, c2, v);
+          if (nbrs.length > 0) {
+            // Find how far it fell
+            let fallDist = 0;
+            for (let pr = r2 - 1; pr >= 0; pr--) {
+              if (beforeGrav[pr][c2] === v) { fallDist = r2 - pr; break; }
+            }
+            fallenMerge = { r: r2, c: c2, v, nbrs, fallDist };
+          }
+        }
+      }
+    }
+
+    if (!fallenMerge) {
+      // No fallen tile triggered a merge — just show gravity if anything moved
+      let anyMoved = false;
+      initAnimGrid();
+      for (let c2 = 0; c2 < w; c2++) {
+        for (let r2 = h - 1; r2 >= 0; r2--) {
+          if (simBoard[r2][c2] !== 0 && beforeGrav[r2][c2] === 0) {
+            for (let pr = r2 - 1; pr >= 0; pr--) {
+              if (beforeGrav[pr][c2] === simBoard[r2][c2]) {
+                setAnim(r2, c2, "gravity", 0, -(r2 - pr) * cs.h);
+                anyMoved = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      syncBoard(simBoard, h, w);
+      if (anyMoved) await sleep(300);
+      break;
+    }
+
+    // Animate: gravity fall
     initAnimGrid();
+    if (fallenMerge.fallDist > 0) {
+      setAnim(fallenMerge.r, fallenMerge.c, "gravity", 0, -fallenMerge.fallDist * cs.h);
+    }
+    // Also animate any other tiles that moved
     for (let c2 = 0; c2 < w; c2++) {
       for (let r2 = h - 1; r2 >= 0; r2--) {
-        const newVal2 = Math.abs(simBoard[r2][c2]);
-        const oldVal2 = Math.abs(beforeGravity[r2][c2]);
-        if (newVal2 !== 0 && oldVal2 === 0) {
+        if (r2 === fallenMerge.r && c2 === fallenMerge.c) continue;
+        if (simBoard[r2][c2] !== 0 && beforeGrav[r2][c2] === 0) {
           for (let pr = r2 - 1; pr >= 0; pr--) {
-            if (Math.abs(beforeGravity[pr][c2]) === newVal2) {
+            if (beforeGrav[pr][c2] === simBoard[r2][c2]) {
               setAnim(r2, c2, "gravity", 0, -(r2 - pr) * cs.h);
-              hasGravityMove = true;
               break;
             }
           }
         }
       }
     }
-
     syncBoard(simBoard, h, w);
-    if (hasGravityMove) await sleep(300);
+    await sleep(300);
 
-    // Continue loop — check for more merges
+    // Animate: fallen tile absorbs neighbors
+    initAnimGrid();
+    for (const [nr, nc] of fallenMerge.nbrs) {
+      setAnim(nr, nc, "absorb", (fallenMerge.c - nc) * cs.w, (fallenMerge.r - nr) * cs.h);
+    }
+    await sleep(300);
+
+    // Execute merge
+    for (const [nr, nc] of fallenMerge.nbrs) {
+      simBoard[nr][nc] = 0;
+      board.value[nr][nc] = 0;
+    }
+    const n2 = 1 + fallenMerge.nbrs.length;
+    const newV = fallenMerge.v * (1 << ceilLog2(n2));
+    simBoard[fallenMerge.r][fallenMerge.c] = newV;
+
+    initAnimGrid();
+    board.value[fallenMerge.r][fallenMerge.c] = newV;
+    setAnim(fallenMerge.r, fallenMerge.c, "merge");
+    await sleep(300);
+
+    // Loop — more gravity may trigger more merges
   }
 
   // ── Final: apply actual server state (ensures consistency)
@@ -325,7 +364,7 @@ function applyStateDirect(state) {
 // ── Which columns are droppable ────────────────────────────────────
 
 function canDrop(col) {
-  return !dropping.value && validActions.value.includes(`drop ${col}`);
+  return !dropping.value && !gameOver.value;
 }
 
 // ── Keyboard ───────────────────────────────────────────────────────
