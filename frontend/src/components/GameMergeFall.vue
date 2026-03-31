@@ -22,7 +22,7 @@ const lastGain = ref(0);
 const prevScore = ref(0);
 const gainKey = ref(0);
 const dropping = ref(false);
-const difficulty = ref("easy");
+const difficulty = ref("hard");
 
 const DIFFICULTIES = [
   { value: "easy",   label: "Easy",   desc: "Tiles cluster together" },
@@ -30,109 +30,315 @@ const DIFFICULTIES = [
   { value: "hard",   label: "Hard",   desc: "Wild tile spawns" },
 ];
 
-// Animation state: per-cell flags
-// cellAnim[r][c] = "drop" | "merge" | "pop" | ""
+// Animation state per cell: { type: "" | "drop" | "flash" | "absorb" | "merge" | "gravity", flyX, flyY }
 const cellAnim = ref([]);
-// Particles for explosion effect: [{r, c, id}]
-const particles = reactive([]);
-let particleId = 0;
 
 function initAnimGrid() {
   cellAnim.value = Array.from({ length: height.value }, () =>
-    Array(width.value).fill("")
+    Array.from({ length: width.value }, () => ({ type: "", flyX: 0, flyY: 0 }))
   );
+}
+
+function setAnim(r, c, type, flyX = 0, flyY = 0) {
+  if (cellAnim.value[r]) {
+    cellAnim.value[r][c] = { type, flyX, flyY };
+    cellAnim.value = [...cellAnim.value];
+  }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ── API helpers ────────────────────────────────────────────────────
 
 async function fetchState(isPolling = false) {
-  // Check if session_id is provided in URL, if so, use it
   const urlSessionId = setSessionIdFromUrl("mergefall");
   const sid = urlSessionId || getSessionId("mergefall");
   sessionId.value = sid;
   const url = addSessionToUrl(`${API}/state`, sid);
   const res = await fetch(url);
   const data = await res.json();
-  if (data.session_id) {
-    sessionId.value = data.session_id;
-  }
+  if (data.session_id) sessionId.value = data.session_id;
 
-  // During polling: if pre_merge_board exists, do two-phase animation
   if (isPolling && data.pre_merge_board) {
     const oldBoard = board.value.map(row => [...row]);
-    const dropCol = data.drop_pos ? data.drop_pos[1] : -1;
-    // Phase 1: show tile landing
-    applyState({ ...data, board: data.pre_merge_board }, true, oldBoard, dropCol);
-    await new Promise(r => setTimeout(r, 400));
-    // Phase 2: show merged result
-    const preMerge = data.pre_merge_board;
-    applyState(data, true, preMerge, -1);
+    await animateFullSequence(oldBoard, data.pre_merge_board, data.board, data.drop_pos, data);
   } else {
-    applyState(data, false);
+    applyStateDirect(data);
   }
   logRef.value?.fetchLog();
 }
 
 async function dropInColumn(col) {
-  if (dropping.value) return;
+  if (dropping.value || gameOver.value) return;
   dropping.value = true;
   error.value = "";
   prevScore.value = score.value;
   lastUserActionTime = Date.now();
 
-  const oldBoard = board.value.map((row) => [...row]);
+  const oldBoard = board.value.map(row => [...row]);
 
   const sid = sessionId.value || getSessionId("mergefall");
   const url = addSessionToUrl(`${API}/action?move=drop ${col}`, sid);
   const res = await fetch(url);
   const data = await res.json();
+  if (data.session_id) sessionId.value = data.session_id;
+
   if (data.error) {
     error.value = data.error;
-  }
-  if (data.session_id) {
-    sessionId.value = data.session_id;
-  }
-
-  // Phase 1: show tile landing (pre-merge board)
-  if (data.pre_merge_board) {
-    applyState({ ...data, board: data.pre_merge_board }, true, oldBoard, col);
-    // Wait for drop animation to finish before showing merges
-    await new Promise(r => setTimeout(r, 400));
+    setTimeout(() => { if (error.value === data.error) error.value = ""; }, 2000);
+    dropping.value = false;
+    return;
   }
 
-  // Phase 2: show final merged board
   const preMerge = data.pre_merge_board || oldBoard;
+  const dropPos = data.drop_pos || null;
+
+  await animateFullSequence(oldBoard, preMerge, data.board, dropPos, data);
+
   const gain = data.score - prevScore.value;
   lastGain.value = gain;
   if (gain > 0) gainKey.value++;
-  applyState(data, true, preMerge, -1);
-  logRef.value?.fetchLog();
 
-  // Allow next action after merge animations settle
-  setTimeout(() => {
-    dropping.value = false;
-  }, 400);
+  logRef.value?.fetchLog();
+  dropping.value = false;
+}
+
+// ── Frontend merge simulation (mirrors backend logic) ──────────
+
+function ceilLog2(n) {
+  let p = 0;
+  let v = 1;
+  while (v < n) { v *= 2; p++; }
+  return p;
+}
+
+
+function syncBoard(simBoard, h, w) {
+  // Update board cells individually to avoid full-array replacement flicker
+  for (let r = 0; r < h; r++) {
+    for (let c = 0; c < w; c++) {
+      board.value[r][c] = Math.abs(simBoard[r][c]);
+    }
+  }
+}
+
+function getCellSize() {
+  // Get actual cell size from DOM for accurate fly animations
+  const cell = document.querySelector('.mergefall .cell');
+  if (cell) {
+    const rect = cell.getBoundingClientRect();
+    return { w: rect.width + 5, h: rect.height + 5 }; // +5 for gap
+  }
+  return { w: 62, h: 62 };
+}
+
+async function animateFullSequence(oldBoard, preMergeBoard, finalBoard, dropPos, stateData) {
+  const h = preMergeBoard.length;
+  const w = preMergeBoard[0].length;
+
+  // ── Phase 1: Drop ── show new tile sliding down
+  initAnimGrid();
+  board.value = preMergeBoard.map(row => [...row]);
+  updateMeta(stateData);
+
+  if (dropPos) {
+    const [dr, dc] = dropPos;
+    setAnim(dr, dc, "drop");
+  }
+  await sleep(350);
+
+  // ── Phase 2: Active chain — only active tile settles, absorbs direct neighbors ──
+  let simBoard = preMergeBoard.map(row => [...row]);
+  let activePos = dropPos ? [dropPos[0], dropPos[1]] : null;
+  const cs = getCellSize();
+
+  // settleActive: only let the active tile fall (not other tiles)
+  function settleActive() {
+    if (!activePos) return;
+    let [ar, ac] = activePos;
+    let lowest = ar;
+    for (let r = ar + 1; r < h; r++) {
+      if (simBoard[r][ac] === 0) lowest = r;
+      else break;
+    }
+    if (lowest !== ar) {
+      simBoard[lowest][ac] = simBoard[ar][ac];
+      simBoard[ar][ac] = 0;
+      activePos = [lowest, ac];
+    }
+  }
+
+  // findNeighbors: direct same-value neighbors of a cell
+  function findNeighbors(r, c, v) {
+    const nbrs = [];
+    for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < h && nc >= 0 && nc < w && simBoard[nr][nc] === v) {
+        nbrs.push([nr, nc]);
+      }
+    }
+    return nbrs;
+  }
+
+  while (activePos) {
+    settleActive();
+    const [ar, ac] = activePos;
+    const activeVal = simBoard[ar][ac];
+    if (activeVal === 0) break;
+
+    const neighbors = findNeighbors(ar, ac, activeVal);
+    if (neighbors.length === 0) break;
+
+    // Animate absorb
+    syncBoard(simBoard, h, w);
+    initAnimGrid();
+    for (const [nr, nc] of neighbors) {
+      setAnim(nr, nc, "absorb", (ac - nc) * cs.w, (ar - nr) * cs.h);
+    }
+    await sleep(300);
+
+    // Execute merge
+    for (const [nr, nc] of neighbors) {
+      simBoard[nr][nc] = 0;
+      board.value[nr][nc] = 0;
+    }
+    const n = 1 + neighbors.length;
+    const newVal = activeVal * (1 << ceilLog2(n));
+    simBoard[ar][ac] = newVal;
+
+    initAnimGrid();
+    board.value[ar][ac] = newVal;
+    setAnim(ar, ac, "merge");
+    await sleep(300);
+  }
+
+  // ── Phase 3: Gravity cascade — full gravity, fallen tiles absorb neighbors ──
+  // applyFullGravity: all tiles fall
+  function applyFullGravity() {
+    for (let c2 = 0; c2 < w; c2++) {
+      const vals = [];
+      for (let r2 = 0; r2 < h; r2++) {
+        if (simBoard[r2][c2] !== 0) vals.push(simBoard[r2][c2]);
+      }
+      let rr = h - 1;
+      for (let i = vals.length - 1; i >= 0; i--) { simBoard[rr][c2] = vals[i]; rr--; }
+      for (let r2 = rr; r2 >= 0; r2--) simBoard[r2][c2] = 0;
+    }
+  }
+
+  while (true) {
+    const beforeGrav = simBoard.map(row => [...row]);
+    applyFullGravity();
+
+    // Find tiles that fell (new position was empty before)
+    let fallenMerge = null;
+    for (let c2 = 0; c2 < w && !fallenMerge; c2++) {
+      for (let r2 = h - 1; r2 >= 0 && !fallenMerge; r2--) {
+        const v = simBoard[r2][c2];
+        if (v !== 0 && beforeGrav[r2][c2] === 0) {
+          const nbrs = findNeighbors(r2, c2, v);
+          if (nbrs.length > 0) {
+            // Find how far it fell
+            let fallDist = 0;
+            for (let pr = r2 - 1; pr >= 0; pr--) {
+              if (beforeGrav[pr][c2] === v) { fallDist = r2 - pr; break; }
+            }
+            fallenMerge = { r: r2, c: c2, v, nbrs, fallDist };
+          }
+        }
+      }
+    }
+
+    if (!fallenMerge) {
+      // No fallen tile triggered a merge — just show gravity if anything moved
+      let anyMoved = false;
+      initAnimGrid();
+      for (let c2 = 0; c2 < w; c2++) {
+        for (let r2 = h - 1; r2 >= 0; r2--) {
+          if (simBoard[r2][c2] !== 0 && beforeGrav[r2][c2] === 0) {
+            for (let pr = r2 - 1; pr >= 0; pr--) {
+              if (beforeGrav[pr][c2] === simBoard[r2][c2]) {
+                setAnim(r2, c2, "gravity", 0, -(r2 - pr) * cs.h);
+                anyMoved = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      syncBoard(simBoard, h, w);
+      if (anyMoved) await sleep(300);
+      break;
+    }
+
+    // Animate: gravity fall
+    initAnimGrid();
+    if (fallenMerge.fallDist > 0) {
+      setAnim(fallenMerge.r, fallenMerge.c, "gravity", 0, -fallenMerge.fallDist * cs.h);
+    }
+    // Also animate any other tiles that moved
+    for (let c2 = 0; c2 < w; c2++) {
+      for (let r2 = h - 1; r2 >= 0; r2--) {
+        if (r2 === fallenMerge.r && c2 === fallenMerge.c) continue;
+        if (simBoard[r2][c2] !== 0 && beforeGrav[r2][c2] === 0) {
+          for (let pr = r2 - 1; pr >= 0; pr--) {
+            if (beforeGrav[pr][c2] === simBoard[r2][c2]) {
+              setAnim(r2, c2, "gravity", 0, -(r2 - pr) * cs.h);
+              break;
+            }
+          }
+        }
+      }
+    }
+    syncBoard(simBoard, h, w);
+    await sleep(300);
+
+    // Animate: fallen tile absorbs neighbors
+    initAnimGrid();
+    for (const [nr, nc] of fallenMerge.nbrs) {
+      setAnim(nr, nc, "absorb", (fallenMerge.c - nc) * cs.w, (fallenMerge.r - nr) * cs.h);
+    }
+    await sleep(300);
+
+    // Execute merge
+    for (const [nr, nc] of fallenMerge.nbrs) {
+      simBoard[nr][nc] = 0;
+      board.value[nr][nc] = 0;
+    }
+    const n2 = 1 + fallenMerge.nbrs.length;
+    const newV = fallenMerge.v * (1 << ceilLog2(n2));
+    simBoard[fallenMerge.r][fallenMerge.c] = newV;
+
+    initAnimGrid();
+    board.value[fallenMerge.r][fallenMerge.c] = newV;
+    setAnim(fallenMerge.r, fallenMerge.c, "merge");
+    await sleep(300);
+
+    // Loop — more gravity may trigger more merges
+  }
+
+  // ── Final: apply actual server state (ensures consistency)
+  initAnimGrid();
+  applyStateDirect(stateData);
 }
 
 async function resetGame(newDifficulty) {
   if (newDifficulty) difficulty.value = newDifficulty;
   error.value = "";
   lastGain.value = 0;
-  particles.splice(0);
   const sid = resetSessionId("mergefall");
   sessionId.value = sid;
   const url = addSessionToUrl(`${API}/reset?difficulty=${difficulty.value}`, sid);
   const res = await fetch(url);
   const data = await res.json();
-  if (data.session_id) {
-    sessionId.value = data.session_id;
-  }
-  applyState(data, false);
+  if (data.session_id) sessionId.value = data.session_id;
+  applyStateDirect(data);
   logRef.value?.fetchLog();
 }
 
-function applyState(state, animate = false, oldBoard = null, dropCol = -1) {
-  const newBoard = state.board;
+function updateMeta(state) {
   width.value = state.width;
   height.value = state.height;
   score.value = state.score;
@@ -141,70 +347,27 @@ function applyState(state, animate = false, oldBoard = null, dropCol = -1) {
   validActions.value = state.valid_actions || [];
   if (state.difficulty) difficulty.value = state.difficulty;
   agentError.value = state.agent_error || "";
+}
 
+function applyStateDirect(state) {
+  board.value = state.board;
+  updateMeta(state);
   initAnimGrid();
 
-  if (animate && oldBoard) {
-    // Detect changes
-    for (let r = 0; r < height.value; r++) {
-      for (let c = 0; c < width.value; c++) {
-        const oldVal = oldBoard[r]?.[c] ?? 0;
-        const newVal = newBoard[r][c];
-
-        if (oldVal === 0 && newVal !== 0) {
-          // New tile appeared — could be drop or gravity settle
-          cellAnim.value[r][c] = c === dropCol ? "drop" : "pop";
-        } else if (oldVal !== 0 && newVal !== 0 && newVal > oldVal) {
-          // Value increased — this is a merge result
-          cellAnim.value[r][c] = "merge";
-        } else if (oldVal !== 0 && newVal === 0) {
-          // Tile disappeared — was absorbed, spawn particles
-          spawnParticles(r, c, oldVal);
-        }
-      }
-    }
-  }
-
-  board.value = newBoard;
-
-  // Stop polling if game is over
   if (state.game_over) {
     stopPolling();
   } else {
-    // Ensure polling is active
     startPolling();
-  }
-
-  // Clear animation classes after they finish
-  if (animate) {
-    setTimeout(() => {
-      initAnimGrid();
-    }, 500);
-  }
-}
-
-// ── Particle explosion ─────────────────────────────────────────────
-
-function spawnParticles(r, c, value) {
-  const color = (tileColors[value] || { bg: "#475569" }).bg;
-  for (let i = 0; i < 6; i++) {
-    const id = particleId++;
-    particles.push({ r, c, id, color, index: i });
-    // Remove after animation
-    setTimeout(() => {
-      const idx = particles.findIndex((p) => p.id === id);
-      if (idx !== -1) particles.splice(idx, 1);
-    }, 600);
   }
 }
 
 // ── Which columns are droppable ────────────────────────────────────
 
 function canDrop(col) {
-  return !dropping.value && validActions.value.includes(`drop ${col}`);
+  return !dropping.value && !gameOver.value;
 }
 
-// ── Keyboard: 1-5 keys to drop into columns ───────────────────────
+// ── Keyboard ───────────────────────────────────────────────────────
 
 function onKeyDown(e) {
   if (gameOver.value || dropping.value) return;
@@ -218,22 +381,18 @@ function onKeyDown(e) {
   }
 }
 
-// Polling interval to check for state changes (e.g., from Agent)
+// ── Polling ────────────────────────────────────────────────────────
+
 let pollingInterval = null;
-const POLLING_INTERVAL_MS = 1000; // Poll every 1 second
+const POLLING_INTERVAL_MS = 1000;
 let lastUserActionTime = 0;
-const USER_ACTION_COOLDOWN_MS = 500; // Don't poll immediately after user action
+const USER_ACTION_COOLDOWN_MS = 500;
 
 function startPolling() {
-  // Only poll if game is not over and interval not already set
   if (!pollingInterval && !gameOver.value) {
     pollingInterval = setInterval(async () => {
-      // Don't poll if user just performed an action (cooldown period)
-      const timeSinceLastAction = Date.now() - lastUserActionTime;
-      if (timeSinceLastAction < USER_ACTION_COOLDOWN_MS) {
-        return;
-      }
-      
+      if (Date.now() - lastUserActionTime < USER_ACTION_COOLDOWN_MS) return;
+      if (dropping.value) return;
       if (!gameOver.value) {
         await fetchState(true);
       } else {
@@ -253,7 +412,6 @@ function stopPolling() {
 onMounted(() => {
   fetchState();
   window.addEventListener("keydown", onKeyDown);
-  // Start polling to detect Agent actions
   startPolling();
 });
 
@@ -292,25 +450,6 @@ function tileStyle(value) {
 function nextTileStyle() {
   const c = tileColors[nextTile.value] || { bg: "#475569", fg: "#fff" };
   return { backgroundColor: c.bg, color: c.fg };
-}
-
-// ── Particle position (relative to board grid) ─────────────────────
-
-function particleStyle(p) {
-  // Each particle flies in a different direction
-  const angles = [0, 60, 120, 180, 240, 300];
-  const angle = angles[p.index % 6];
-  const rad = (angle * Math.PI) / 180;
-  const dist = 30 + Math.random() * 15;
-  const tx = Math.cos(rad) * dist;
-  const ty = Math.sin(rad) * dist;
-  return {
-    "--tx": `${tx}px`,
-    "--ty": `${ty}px`,
-    backgroundColor: p.color,
-    gridRow: p.r + 1,
-    gridColumn: p.c + 1,
-  };
 }
 </script>
 
@@ -373,24 +512,21 @@ function particleStyle(p) {
           class="cell"
           :class="{
             empty: cell === 0,
-            'anim-drop': cellAnim[r]?.[c] === 'drop',
-            'anim-merge': cellAnim[r]?.[c] === 'merge',
-            'anim-pop': cellAnim[r]?.[c] === 'pop',
+            'anim-drop': cellAnim[r]?.[c]?.type === 'drop',
+            'anim-absorb': cellAnim[r]?.[c]?.type === 'absorb',
+            'anim-merge': cellAnim[r]?.[c]?.type === 'merge',
+            'anim-gravity': cellAnim[r]?.[c]?.type === 'gravity',
           }"
-          :style="cell !== 0 ? tileStyle(cell) : {}"
+          :style="{
+            ...(cell !== 0 ? tileStyle(cell) : {}),
+            '--fly-x': (cellAnim[r]?.[c]?.flyX || 0) + 'px',
+            '--fly-y': (cellAnim[r]?.[c]?.flyY || 0) + 'px',
+          }"
           @click="canDrop(c) && dropInColumn(c)"
         >
           <span v-if="cell !== 0">{{ cell }}</span>
         </div>
       </template>
-
-      <!-- Explosion particles (overlaid on grid) -->
-      <div
-        v-for="p in particles"
-        :key="p.id"
-        class="particle"
-        :style="particleStyle(p)"
-      ></div>
     </div>
 
     <!-- Hint -->
@@ -448,6 +584,7 @@ function particleStyle(p) {
   padding: 8px 18px;
   color: #fff;
   text-align: center;
+  min-width: 90px;
 }
 
 .score-box .label,
@@ -494,9 +631,7 @@ function particleStyle(p) {
   transition: background 0.15s;
 }
 
-.reset-btn:hover {
-  background: #334155;
-}
+.reset-btn:hover { background: #334155; }
 
 /* ── Gain popup ────────────────────────────────────────────────── */
 
@@ -513,8 +648,8 @@ function particleStyle(p) {
 }
 
 @keyframes fadeUp {
-  0% { opacity: 1; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(-20px); }
+  0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
 }
 
 /* ── Banners ───────────────────────────────────────────────────── */
@@ -564,19 +699,10 @@ function particleStyle(p) {
   transition: all 0.15s;
 }
 
-.drop-btn:not(:disabled):hover {
-  color: #4ade80;
-  background: #1e293b;
-}
+.drop-btn:not(:disabled):hover { color: #4ade80; }
+.drop-btn:disabled { opacity: 0.2; cursor: not-allowed; }
 
-.drop-btn:disabled {
-  opacity: 0.2;
-  cursor: not-allowed;
-}
-
-.arrow-down {
-  font-size: 0.7rem;
-}
+.arrow-down { font-size: 0.7rem; }
 
 /* ── Board ─────────────────────────────────────────────────────── */
 
@@ -604,99 +730,73 @@ function particleStyle(p) {
   transition: background-color 0.15s;
 }
 
-.cell.empty {
-  background: #334155;
-  cursor: default;
-}
+.cell.empty { background: #334155; cursor: default; }
+.cell:not(.empty):hover { filter: brightness(1.1); }
 
-.cell:not(.empty):hover {
-  filter: brightness(1.1);
-}
-
-/* ── Drop animation ────────────────────────────────────────────── */
+/* ── Drop ── tile slides down smoothly ──────────────────────────── */
 
 .anim-drop {
-  animation: tileDrop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: tileDrop 0.3s ease-out forwards;
 }
 
 @keyframes tileDrop {
   0% {
     opacity: 0;
-    transform: translateY(-80px) scale(0.8);
-  }
-  60% {
-    opacity: 1;
-    transform: translateY(4px) scale(1.02);
+    transform: translateY(-60px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
-/* ── Merge (scale bump + glow) ─────────────────────────────────── */
+/* ── Absorb ── tiles fly toward absorber and shrink ────────────── */
+
+.anim-absorb {
+  animation: tileAbsorb 0.25s ease-in forwards;
+}
+
+@keyframes tileAbsorb {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--fly-x, 0), var(--fly-y, 0)) scale(0.15);
+    opacity: 0;
+  }
+}
+
+/* ── Merge ── subtle pulse on value upgrade ──────────────────────── */
 
 .anim-merge {
-  animation: tileMerge 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: tileMerge 0.25s ease-out forwards;
 }
 
 @keyframes tileMerge {
   0% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.5);
   }
   40% {
-    transform: scale(1.3);
-    box-shadow: 0 0 16px 6px rgba(255, 255, 255, 0.4);
-  }
-  70% {
-    transform: scale(0.95);
+    transform: scale(1.08);
   }
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
   }
 }
 
-/* ── Pop-in (gravity settle) ───────────────────────────────────── */
+/* ── Gravity ── tiles slide down naturally ─────────────────────── */
 
-.anim-pop {
-  animation: tilePop 0.25s ease-out forwards;
+.anim-gravity {
+  animation: tileGravity 0.2s ease-in forwards;
 }
 
-@keyframes tilePop {
+@keyframes tileGravity {
   0% {
-    opacity: 0.5;
-    transform: scale(0.6);
+    transform: translateY(var(--fly-y, -20px));
   }
   100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* ── Explosion particles ───────────────────────────────────────── */
-
-.particle {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 10;
-  /* Center in the grid cell */
-  place-self: center;
-  animation: particleFly 0.5s ease-out forwards;
-}
-
-@keyframes particleFly {
-  0% {
-    opacity: 1;
-    transform: translate(0, 0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(var(--tx, 20px), var(--ty, -20px)) scale(0.3);
+    transform: translateY(0);
   }
 }
 
