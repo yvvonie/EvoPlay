@@ -1,8 +1,16 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
-import { getSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
+import { getSessionId, addSessionToUrl, setSessionIdFromUrl, tryResume } from "../utils/session.js";
+import GameGuide from "./GameGuide.vue";
 
 defineProps({ playerName: { type: String, default: "" } });
+
+const guideTitle = "How to Play Four in a Row";
+const guideSections = [
+  { label: "Goal", text: "Connect four of your pieces in a row (horizontal, vertical, or diagonal) before the bot does." },
+  { label: "Controls", text: "Click a column or its arrow to drop your piece. You play as red, the bot plays as yellow." },
+  { label: "Rules", text: "Players take turns dropping pieces into columns. Pieces fall to the lowest available row. First to connect 4 wins." },
+];
 
 const API = "/api/game/fourinarow";
 const sessionId = ref(null);
@@ -110,12 +118,25 @@ function isBotLastCol(c) {
   return lastBotCol.value === c && !gameOver.value;
 }
 
-onMounted(fetchState);
+onMounted(async () => {
+  // Try to resume unfinished game
+  const urlSid = setSessionIdFromUrl("fourinarow");
+  if (!urlSid) {
+    const resumed = await tryResume("fourinarow");
+    if (resumed) {
+      sessionId.value = resumed.session_id;
+      applyState(resumed);
+      return;
+    }
+  }
+  fetchState();
+});
 onUnmounted(stopPolling);
 </script>
 
 <template>
   <div class="wrapper">
+    <GameGuide :title="guideTitle" :sections="guideSections" />
 
     <!-- Difficulty selector -->
     <div class="difficulty-bar">

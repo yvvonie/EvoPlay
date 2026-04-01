@@ -13,6 +13,8 @@ from typing import Any
 
 # All log files go here (relative to backend/)
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+# Save files for resuming unfinished games
+SAVE_DIR = Path(__file__).resolve().parent.parent / "saves"
 
 
 class BaseGame(ABC):
@@ -160,6 +162,78 @@ class BaseGame(ABC):
             "game_over": getattr(self, "game_over", False),
             "won": getattr(self, "won", False)
         }
+
+    # ── Save / Resume ─────────────────────────────────────────────
+
+    def serialize(self) -> dict[str, Any]:
+        """Serialize game state to a JSON-friendly dict for persistence.
+        Subclasses can override to include game-specific fields."""
+        return {
+            "name": self.name,
+            "state": self.get_state(),
+            "session_id": self._session_id,
+            "player_name": self._player_name,
+            "difficulty": getattr(self, "difficulty", ""),
+            "steps": self._steps,
+        }
+
+    def save(self) -> None:
+        """Save current game state to disk for later resumption."""
+        if not self._player_name or not self.name:
+            return
+        SAVE_DIR.mkdir(parents=True, exist_ok=True)
+        safe_player = self._player_name.replace("/", "_").replace("\\", "_")
+        save_path = SAVE_DIR / f"{safe_player}_{self.name}.json"
+        data = self.serialize()
+        data["game_over"] = getattr(self, "game_over", False)
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+
+    @staticmethod
+    def load_save(player_name: str, game_name: str) -> dict[str, Any] | None:
+        """Load saved game state from disk. Returns None if no save exists or game was finished."""
+        safe_player = player_name.replace("/", "_").replace("\\", "_")
+        save_path = SAVE_DIR / f"{safe_player}_{game_name}.json"
+        if not save_path.exists():
+            return None
+        try:
+            with open(save_path, encoding="utf-8") as f:
+                data = json.load(f)
+            # Don't resume finished games
+            if data.get("game_over", False):
+                return None
+            return data
+        except Exception:
+            return None
+
+    def restore_state(self, saved_state: dict[str, Any]) -> None:
+        """Restore game state from a saved state dict.
+        Works for most games by setting common attributes from the state."""
+        if "board" in saved_state:
+            self.board = saved_state["board"]
+        if "score" in saved_state:
+            self.score = saved_state["score"]
+        if "game_over" in saved_state:
+            self.game_over = saved_state["game_over"]
+        if "won" in saved_state:
+            self.won = saved_state.get("won", False)
+        if "difficulty" in saved_state and hasattr(self, "set_difficulty"):
+            self.set_difficulty(saved_state["difficulty"])
+        # Game-specific fields
+        if "max_tile" in saved_state and hasattr(self, "max_tile"):
+            self.max_tile = saved_state["max_tile"]
+        if "next_tile" in saved_state and hasattr(self, "next_tile"):
+            self.next_tile = saved_state["next_tile"]
+        if "moves" in saved_state and hasattr(self, "moves"):
+            self.moves = saved_state["moves"]
+
+    @staticmethod
+    def delete_save(player_name: str, game_name: str) -> None:
+        """Delete saved game state (called when game is finished or reset)."""
+        safe_player = player_name.replace("/", "_").replace("\\", "_")
+        save_path = SAVE_DIR / f"{safe_player}_{game_name}.json"
+        if save_path.exists():
+            save_path.unlink()
 
     # ── Abstract interface ──────────────────────────────────────────
 

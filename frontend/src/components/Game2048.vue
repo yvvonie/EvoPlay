@@ -1,7 +1,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, nextTick } from "vue";
 import GameLog from "./GameLog.vue";
-import { getSessionId, resetSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
+import GameGuide from "./GameGuide.vue";
+import { getSessionId, resetSessionId, addSessionToUrl, setSessionIdFromUrl, tryResume } from "../utils/session.js";
+
+const guideTitle = "How to Play 2048";
+const guideSections = [
+  { heading: "Goal", content: "Slide tiles to combine matching numbers. Reach 2048 to win!" },
+  { heading: "Controls", content: "Arrow keys or WASD to slide all tiles in one direction. Tap the buttons on mobile." },
+  { heading: "Rules", content: "When two tiles with the same number touch, they merge into one tile with double the value. A new tile (2 or 4) appears after each move. Game ends when no moves are possible." },
+];
 
 defineProps({ playerName: { type: String, default: "" } });
 
@@ -339,7 +347,19 @@ function stopPolling() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Try to resume unfinished game
+  const urlSid = setSessionIdFromUrl("2048");
+  if (!urlSid) {
+    const resumed = await tryResume("2048");
+    if (resumed) {
+      sessionId.value = resumed.session_id;
+      applyState(resumed);
+      window.addEventListener("keydown", onKeyDown);
+      startPolling();
+      return;
+    }
+  }
   fetchState();
   window.addEventListener("keydown", onKeyDown);
   startPolling();
@@ -392,6 +412,7 @@ function tileStyle(tile) {
 
 <template>
   <div class="game-2048" tabindex="0">
+    <GameGuide :title="guideTitle" :sections="guideSections" />
     <!-- Difficulty selector -->
     <div class="difficulty-bar">
       <button

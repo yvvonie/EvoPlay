@@ -28,6 +28,7 @@ def create_reasoning(
     api_base: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    no_thinking: bool = False,
 ) -> Reasoning:
     """
     Factory function to create reasoning engine based on method name.
@@ -68,6 +69,7 @@ def create_reasoning(
             api_base=api_base,
             temperature=temperature,
             max_tokens=max_tokens,
+            no_thinking=no_thinking,
         )
     else:
         raise ValueError(
@@ -198,6 +200,12 @@ Examples:
         default=None,
         help="Difficulty level for bot games (easy, medium, hard)",
     )
+    parser.add_argument(
+        "--no-thinking",
+        action="store_true",
+        default=False,
+        help="Disable thinking/reasoning mode for models that support it (e.g., Qwen3.5)",
+    )
 
     return parser.parse_args()
 
@@ -219,6 +227,7 @@ def main():
             api_base=args.api_base,
             temperature=args.temperature,
             max_tokens=args.max_tokens,
+            no_thinking=args.no_thinking,
         )
         print(f"Using reasoning method: {args.reasoning}")
         print(f"Using model: {args.model}")

@@ -1,8 +1,16 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from "vue";
-import { getSessionId, resetSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
+import { getSessionId, resetSessionId, addSessionToUrl, setSessionIdFromUrl, tryResume } from "../utils/session.js";
+import GameGuide from "./GameGuide.vue";
 
 defineProps({ playerName: { type: String, default: "" } });
+
+const guideTitle = "How to Play Sliding Puzzle";
+const guideSections = [
+  { label: "Goal", text: "Arrange the tiles in order (1-8) by sliding them into the empty space." },
+  { label: "Controls", text: "Click a tile adjacent to the empty space to slide it. Arrow keys also work." },
+  { label: "Rules", text: "Only tiles directly next to the empty space can move. Solve in as few moves as possible." },
+];
 
 const API = "/api/game/sliding_puzzle";
 const sessionId = ref(null);
@@ -128,7 +136,18 @@ function onKeyDown(e) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Try to resume unfinished game
+  const urlSid = setSessionIdFromUrl("sliding_puzzle");
+  if (!urlSid) {
+    const resumed = await tryResume("sliding_puzzle");
+    if (resumed) {
+      sessionId.value = resumed.session_id;
+      applyState(resumed);
+      window.addEventListener("keydown", onKeyDown);
+      return;
+    }
+  }
   fetchState();
   window.addEventListener("keydown", onKeyDown);
 });
@@ -141,6 +160,8 @@ onUnmounted(() => {
 
 <template>
   <div class="wrapper">
+    <GameGuide :title="guideTitle" :sections="guideSections" />
+
     <!-- Difficulty -->
     <div class="difficulty-bar">
       <button

@@ -1,8 +1,16 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
-import { getSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
+import { getSessionId, addSessionToUrl, setSessionIdFromUrl, tryResume } from "../utils/session.js";
+import GameGuide from "./GameGuide.vue";
 
 defineProps({ playerName: { type: String, default: "" } });
+
+const guideTitle = "How to Play Tic Tac Toe";
+const guideSections = [
+  { label: "Goal", text: "Get three of your marks in a row (horizontal, vertical, or diagonal)." },
+  { label: "Controls", text: "Click an empty cell to place your mark. You play as X, the bot plays as O." },
+  { label: "Rules", text: "Players alternate turns. First to get 3 in a row wins. If all 9 cells are filled with no winner, it\u2019s a draw." },
+];
 
 const API = "/api/game/tictactoe";
 const sessionId = ref(null);
@@ -113,12 +121,25 @@ function isClickable(r, c) {
   return !gameOver.value && !isThinking.value && validActions.value.includes(`${r} ${c}`);
 }
 
-onMounted(fetchState);
+onMounted(async () => {
+  // Try to resume unfinished game
+  const urlSid = setSessionIdFromUrl("tictactoe");
+  if (!urlSid) {
+    const resumed = await tryResume("tictactoe");
+    if (resumed) {
+      sessionId.value = resumed.session_id;
+      applyState(resumed);
+      return;
+    }
+  }
+  fetchState();
+});
 onUnmounted(stopPolling);
 </script>
 
 <template>
   <div class="wrapper">
+    <GameGuide :title="guideTitle" :sections="guideSections" />
 
     <!-- Difficulty -->
     <div class="difficulty-bar">

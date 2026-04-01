@@ -1,9 +1,17 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, nextTick } from "vue";
 import GameLog from "./GameLog.vue";
-import { getSessionId, resetSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
+import GameGuide from "./GameGuide.vue";
+import { getSessionId, resetSessionId, addSessionToUrl, setSessionIdFromUrl, tryResume } from "../utils/session.js";
 
 defineProps({ playerName: { type: String, default: "" } });
+
+const guideTitle = "How to Play MergeFall";
+const guideSections = [
+  { label: "Goal", text: "Drop tiles into columns and trigger chain merges to score points." },
+  { label: "Controls", text: "Click column arrows or press 1-5 to drop. The NEXT tile shown above will be dropped." },
+  { label: "Rules", text: "Tiles fall to the bottom. If the dropped tile lands next to same-value tiles, it absorbs them and upgrades. After merging, gravity causes remaining tiles to fall, potentially triggering more merges." },
+];
 
 const API = "/api/game/mergefall";
 const logRef = ref(null);
@@ -409,7 +417,19 @@ function stopPolling() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Try to resume unfinished game
+  const urlSid = setSessionIdFromUrl("mergefall");
+  if (!urlSid) {
+    const resumed = await tryResume("mergefall");
+    if (resumed) {
+      sessionId.value = resumed.session_id;
+      applyStateDirect(resumed);
+      window.addEventListener("keydown", onKeyDown);
+      startPolling();
+      return;
+    }
+  }
   fetchState();
   window.addEventListener("keydown", onKeyDown);
   startPolling();
@@ -455,6 +475,8 @@ function nextTileStyle() {
 
 <template>
   <div class="mergefall" tabindex="0">
+    <GameGuide :title="guideTitle" :sections="guideSections" />
+
     <!-- Difficulty selector -->
     <div class="difficulty-bar">
       <button
