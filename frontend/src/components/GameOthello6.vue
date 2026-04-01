@@ -1,8 +1,16 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from "vue";
-import { getSessionId, addSessionToUrl, setSessionIdFromUrl } from "../utils/session.js";
+import { getSessionId, addSessionToUrl, setSessionIdFromUrl, tryResume } from "../utils/session.js";
+import GameGuide from "./GameGuide.vue";
 
 defineProps({ playerName: { type: String, default: "" } });
+
+const guideTitle = "How to Play Othello 6\u00D76";
+const guideSections = [
+  { label: "Goal", text: "Have more pieces than the bot when the board is full or no moves remain." },
+  { label: "Controls", text: "Click a highlighted cell to place your piece. Small dots show valid moves." },
+  { label: "Rules", text: "Place a piece to outflank the opponent\u2019s pieces (trap them between yours). Outflanked pieces flip to your color. If you have no valid moves, your turn is automatically passed." },
+];
 
 const API = "/api/game/othello6";
 const sessionId = ref(null);
@@ -217,12 +225,25 @@ function cellClass(r, c, cell) {
   };
 }
 
-onMounted(fetchState);
+onMounted(async () => {
+  // Try to resume unfinished game
+  const urlSid = setSessionIdFromUrl("othello6");
+  if (!urlSid) {
+    const resumed = await tryResume("othello6");
+    if (resumed) {
+      sessionId.value = resumed.session_id;
+      applyState(resumed);
+      return;
+    }
+  }
+  fetchState();
+});
 onUnmounted(stopPolling);
 </script>
 
 <template>
   <div class="wrapper">
+    <GameGuide :title="guideTitle" :sections="guideSections" />
 
     <!-- Difficulty -->
     <div class="difficulty-bar">

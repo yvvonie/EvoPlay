@@ -190,7 +190,45 @@ def game_action(name: str):
 
     state["session_id"] = session_id  # Include session_id in response
     _log_action(f"{name}[{session_id[:8]}]", move, state)
+    # Auto-save for resume (delete save if game is over)
+    if state.get("game_over"):
+        game.delete_save(game._player_name or "", name)
+    else:
+        game.save()
     return jsonify(state)
+
+
+@app.get("/api/game/<name>/resume")
+def game_resume(name: str):
+    """Check if player has an unfinished game to resume."""
+    if name not in GAMES:
+        return jsonify({"error": f"Unknown game: {name}"}), 404
+    player_name = request.args.get("player_name", "")
+    if not player_name:
+        return jsonify({"has_save": False})
+
+    from games.base import BaseGame
+    save_data = BaseGame.load_save(player_name, name)
+    if not save_data:
+        return jsonify({"has_save": False})
+
+    # Restore game instance into sessions
+    session_id = save_data.get("session_id") or str(uuid.uuid4())
+    key = (name, session_id)
+    if key not in sessions:
+        game_instance = GAMES[name]()
+        game_instance.set_session_id(session_id)
+        game_instance.set_player_name(player_name)
+        # Restore game state from save
+        saved_state = save_data.get("state", {})
+        if hasattr(game_instance, "restore_state"):
+            game_instance.restore_state(saved_state)
+        sessions[key] = game_instance
+
+    state = sessions[key].get_state()
+    state["session_id"] = session_id
+    state["resumed"] = True
+    return jsonify({"has_save": True, **state})
 
 
 @app.get("/api/game/<name>/reset")
@@ -205,6 +243,8 @@ def game_reset(name: str):
     state = game.reset()
     state["session_id"] = session_id  # Include session_id in response
     _log_action(f"{name}[{session_id[:8]}]", "RESET", state)
+    # Delete save on reset (starting fresh)
+    game.delete_save(game._player_name or "", name)
     return jsonify(state)
 
 
@@ -221,6 +261,11 @@ def game_bot_move(name: str):
     state = game.apply_bot_move()
     state["session_id"] = session_id
     _log_action(f"{name}[{session_id[:8]}]", "BOT_MOVE", state)
+    # Auto-save
+    if state.get("game_over"):
+        game.delete_save(game._player_name or "", name)
+    else:
+        game.save()
     return jsonify(state)
 
 

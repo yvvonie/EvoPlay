@@ -256,4 +256,5 @@ pytest_cache/
 ############################
 
 *.sqlite3
-*.db
+*.dbagent_logs/
+backend/saves/

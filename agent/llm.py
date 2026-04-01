@@ -26,6 +26,7 @@ class LLM:
         api_base: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
+        no_thinking: bool = False,
     ):
         """
         Initialize the LLM interface.
@@ -43,7 +44,10 @@ class LLM:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.no_thinking = no_thinking
         self._litellm = None  # Will be imported lazily
+        self._api_base = api_base
+        self._api_key = api_key
         
         # Set API key if provided
         if api_key:
@@ -142,13 +146,21 @@ class LLM:
         full_messages.extend(messages)
         
         # Merge kwargs with instance defaults
+        # Some newer models (gpt-5.4+) require max_completion_tokens instead of max_tokens
+        token_param = "max_tokens"
+        if self.model.startswith("gpt-5") or self.model.startswith("o1") or self.model.startswith("o3"):
+            token_param = "max_completion_tokens"
         call_kwargs = {
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
+            token_param: self.max_tokens,
             **kwargs
         }
-        
-        # Call LiteLLM
+
+        # Use direct HTTP for custom api_base (litellm drops reasoning_content)
+        if self._api_base:
+            return self._direct_api_call(full_messages, call_kwargs)
+
+        # Call LiteLLM for standard providers
         response = self._litellm.completion(
             model=self.model,
             messages=full_messages,
@@ -162,8 +174,69 @@ class LLM:
             "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
         }
 
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content or ""
+        # Strip thinking tags if present
+        if "</think>" in content:
+            content = content.split("</think>")[-1]
+        return content.strip()
     
+    def _direct_api_call(self, messages: list, call_kwargs: dict) -> str:
+        """Direct HTTP call to custom API base, preserving reasoning_content."""
+        import json
+        import urllib.request
+
+        # Extract model name (strip openai/ prefix if present)
+        model_name = self.model
+        if model_name.startswith("openai/"):
+            model_name = model_name[7:]
+
+        url = self._api_base.rstrip("/") + "/chat/completions"
+        max_tok = call_kwargs.get("max_tokens", self.max_tokens)
+
+        body = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": call_kwargs.get("temperature", self.temperature),
+            "max_tokens": max_tok,
+        }
+
+        # Disable thinking mode if requested
+        if self.no_thinking:
+            body["enable_thinking"] = False
+        else:
+            # Thinking models need much higher max_tokens
+            if max_tok < 4096:
+                body["max_tokens"] = 4096
+
+        api_key = self._api_key or os.environ.get("OPENAI_API_KEY", "")
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode(),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        resp = urllib.request.urlopen(req, timeout=120)
+        result = json.loads(resp.read())
+
+        # Extract usage
+        usage_data = result.get("usage", {})
+        self.last_usage = {
+            "input_tokens": usage_data.get("prompt_tokens", 0),
+            "output_tokens": usage_data.get("completion_tokens", 0),
+        }
+
+        # Get content — check both content and reasoning_content
+        msg = result["choices"][0]["message"]
+        content = msg.get("content", "") or ""
+
+        # Strip thinking tags if present
+        if "</think>" in content:
+            content = content.split("</think>")[-1]
+        return content.strip()
+
     def simple_call(self, prompt: str, system_message: str | None = None, **kwargs: Any) -> str:
         """
         Simple call with a single user prompt.

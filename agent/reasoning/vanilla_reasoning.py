@@ -37,6 +37,7 @@ class VanillaReasoning(Reasoning):
         api_base: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 50,
+        no_thinking: bool = False,
     ):
         """
         Initialize vanilla reasoning.
@@ -57,6 +58,7 @@ class VanillaReasoning(Reasoning):
             api_base=api_base,
             temperature=temperature,
             max_tokens=max_tokens,
+            no_thinking=no_thinking,
         )
     
     def reason(self, game_state: dict[str, Any], valid_actions: list[str], rules: str = "") -> str:

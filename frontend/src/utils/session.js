@@ -68,6 +68,28 @@ export function getSessionIdFromUrl() {
  * it's saved to both sessionStorage (for this tab) and localStorage (for persistence).
  * This allows sharing a session across tabs if needed, or isolating per-tab by default.
  */
+/**
+ * Try to resume an unfinished game for the current player.
+ * Returns the resumed state (with session_id) or null if no save exists.
+ */
+export async function tryResume(gameName) {
+  const playerName = localStorage.getItem("evoplay_player");
+  if (!playerName) return null;
+  try {
+    const res = await fetch(`/api/game/${gameName}/resume?player_name=${encodeURIComponent(playerName)}`);
+    const data = await res.json();
+    if (data.has_save && data.session_id) {
+      // Store the resumed session_id
+      const key = STORAGE_KEY_PREFIX + gameName;
+      sessionStorage.setItem(key, data.session_id);
+      return data;
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+  return null;
+}
+
 export function setSessionIdFromUrl(gameName) {
   const urlSessionId = getSessionIdFromUrl();
   if (urlSessionId) {
