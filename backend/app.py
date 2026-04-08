@@ -241,11 +241,13 @@ def game_reset(name: str):
     game, session_id = _get_game(name)
     if game is None:
         return jsonify({"error": f"Unknown game: {name}"}), 404
-    state = game.reset()
+        
     difficulty = request.args.get("difficulty")
     if difficulty and hasattr(game, "set_difficulty"):
         game.set_difficulty(difficulty)
-        state["difficulty"] = difficulty
+    game.reset()
+        
+    state = game.get_state()
     state["session_id"] = session_id  # Include session_id in response
     _log_action(f"{name}[{session_id[:8]}]", "RESET", state)
     # Delete save on reset (starting fresh)

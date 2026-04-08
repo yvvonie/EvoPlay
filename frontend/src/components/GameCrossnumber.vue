@@ -22,6 +22,7 @@ const state = ref({
   rows: 0,
   cols: 0,
   score: 0,
+  lives: 3,
   game_over: false,
   won: false,
   withdrawn: false,
@@ -29,6 +30,7 @@ const state = ref({
   undo_available: false,
   current_level: 1,
   max_level: 1,
+  difficulty: "easy",
 });
 
 const errorMsg = ref("");
@@ -63,7 +65,7 @@ async function startGame() {
     const newSessionId = resetSessionId(gameId);
     sessionId.value = newSessionId;
 
-    const res = await fetch(`/api/game/${gameId}/reset?session_id=${newSessionId}&player_name=${encodeURIComponent(props.playerName)}`);
+    const res = await fetch(`/api/game/${gameId}/reset?session_id=${newSessionId}&difficulty=${state.value.difficulty}&player_name=${encodeURIComponent(props.playerName)}`);
     const data = await res.json();
     if (data.error) {
       errorMsg.value = data.error;
@@ -75,6 +77,17 @@ async function startGame() {
   } finally {
     isLoading.value = false;
   }
+}
+
+const DIFFICULTIES = [
+  { value: "easy",   label: "Easy" },
+  { value: "medium", label: "Medium" },
+  { value: "hard",   label: "Hard" },
+];
+
+async function applyDifficulty(diff) {
+  state.value.difficulty = diff;
+  await startGame();
 }
 
 // Send action
@@ -188,23 +201,49 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="game-container">
+  <div class="wrapper">
     <div class="game-header">
       <div class="header-left">
-        <h2 class="game-title">Crossnumber</h2>
-        <div class="level-badge">Level {{ state.current_level }}</div>
+        <GameGuide game-id="crossnumber" />
+      </div>
+      <div class="header-center">
+        <div class="level-badge">{{ state.difficulty.toUpperCase() }}</div>
+        <div class="level-title">Level {{ state.current_level }}</div>
         <div v-if="isWatchMode" class="watch-badge">👁️ Watch Mode</div>
       </div>
-      
       <div class="header-right">
-        <div class="score-board">
-          <span class="score-label">Score</span>
-          <span class="score-value">{{ state.score }}</span>
-        </div>
-        <GameGuide game-id="crossnumber" />
         <button v-if="!isWatchMode" class="icon-btn" @click="startGame" title="Restart Game">
           🔄
         </button>
+      </div>
+    </div>
+
+    <!-- Difficulty selector -->
+    <div class="difficulty-bar">
+      <button
+        v-for="d in DIFFICULTIES"
+        :key="d.value"
+        class="diff-btn"
+        :class="{ active: state.difficulty === d.value }"
+        :disabled="isWatchMode"
+        @click="applyDifficulty(d.value)"
+      >{{ d.label }}</button>
+    </div>
+
+    <div class="top-bar">
+      <div class="stat-card">
+        <span class="stat-label">Level</span>
+        <span class="stat-value">{{ state.current_level }}/{{ state.max_level }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Score</span>
+        <span class="stat-value">{{ state.score }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Lives</span>
+        <div class="lives-board">
+          <span v-for="n in 3" :key="n" class="heart" :class="{ lost: n > state.lives }">❤️</span>
+        </div>
       </div>
     </div>
 
@@ -315,6 +354,9 @@ onUnmounted(() => {
       <div v-if="state.won" class="status-banner success">
         🎉 Level Cleared!
       </div>
+      <div v-else-if="state.lives <= 0" class="status-banner error">
+        💔 Out of lives! Game Over.
+      </div>
       <div v-else-if="state.withdrawn" class="status-banner error">
         🏳️ You gave up this level.
       </div>
@@ -325,56 +367,125 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.game-container {
+.wrapper {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
+  align-items: center;
   width: 100%;
-  max-width: 600px;
-  margin: 0 auto;
 }
 
 .game-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: white;
-  padding: 15px 20px;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  width: 100%;
+  margin-bottom: 16px;
 }
 
-.header-left {
+.header-center {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-}
-
-.game-title {
-  margin: 0;
-  font-size: 1.5rem;
-  color: #2c3e50;
 }
 
 .level-badge {
+  background: #cbd5e1;
+  color: #334155;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  letter-spacing: 1px;
+}
+
+.level-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #8b5cf6;
+}
+
+.top-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 600px;
+  margin-bottom: 10px;
+}
+
+.stat-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.lives-board {
+  display: flex;
+  gap: 4px;
+  margin-right: 0px;
+}
+
+.heart {
+  font-size: 1.2rem;
+  transition: opacity 0.3s;
+}
+
+.heart.lost {
+  opacity: 0.2;
+  filter: grayscale(100%);
+}
+
+/* Difficulty */
+.difficulty-bar {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: -10px;
+  margin-bottom: 5px;
+}
+.diff-btn {
+  padding: 5px 16px;
+  border-radius: 20px;
+  border: 1px solid #bdc3c7;
+  background: transparent;
+  color: #7f8c8d;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.diff-btn:hover:not(:disabled) { border-color: #3498db; color: #3498db; }
+.diff-btn.active {
   background: #3498db;
-  color: white;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.85rem;
+  border-color: #3498db;
+  color: #fff;
   font-weight: 600;
 }
-
-.watch-badge {
-  background: #e74c3c;
-  color: white;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 600;
+.diff-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.header-right {
+.score-board {
   display: flex;
   align-items: center;
   gap: 15px;

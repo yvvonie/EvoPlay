@@ -4,6 +4,7 @@ from .base import BaseGame
 
 LEVELS = {
     1: {
+        "difficulty": "easy",
         "grid": [
             [5, 1, 6, 2],
             [8, 2, 4, 2],
@@ -12,6 +13,134 @@ LEVELS = {
         ],
         "row_targets": [1, 2, 4, 3],
         "col_targets": [3, 3, 2, 2]
+    },
+    2: {
+        "difficulty": "easy",
+        "grid": [
+            [8, 2, 3, 1],
+            [8, 1, 8, 3],
+            [1, 8, 9, 1],
+            [1, 1, 8, 3]
+        ],
+        "row_targets": [4, 4, 1, 1],
+        "col_targets": [2, 1, 3, 4]
+    },
+    3: {
+        "difficulty": "easy",
+        "grid": [
+            [3, 1, 4, 2],
+            [2, 5, 1, 3],
+            [1, 4, 2, 5],
+            [4, 2, 3, 1]
+        ],
+        "row_targets": [6, 6, 8, 6],
+        "col_targets": [8, 8, 3, 7]
+    },
+    4: {
+        "difficulty": "easy",
+        "grid": [
+            [2, 2, 1, 2],
+            [7, 2, 4, 4],
+            [2, 1, 6, 2],
+            [1, 2, 1, 1]
+        ],
+        "row_targets": [5, 4, 3, 3],
+        "col_targets": [5, 1, 6, 3]
+    },
+    5: {
+        "difficulty": "medium",
+        "grid": [
+            [3, 3, 4, 4],
+            [5, 4, 2, 5],
+            [5, 2, 6, 2],
+            [6, 2, 9, 8]
+        ],
+        "row_targets": [3, 2, 2, 2],
+        "col_targets": [3, 2, 2, 2]
+    },
+    6: {
+        "difficulty": "medium",
+        "grid": [
+            [1, 5, 1, 6, 6],
+            [3, 7, 6, 7, 2],
+            [1, 3, 3, 2, 2],
+            [5, 1, 6, 8, 3],
+            [8, 2, 1, 1, 7]
+        ],
+        "row_targets": [7, 3, 2, 6, 1],
+        "col_targets": [9, 6, 1, 1, 2]
+    },
+    7: {
+        "difficulty": "medium",
+        "grid": [
+            [1, 4, 4, 5],
+            [4, 8, 4, 5],
+            [8, 5, 5, 3],
+            [3, 9, 8, 5]
+        ],
+        "row_targets": [5, 8, 8, 9],
+        "col_targets": [1, 17, 9, 3],
+        "solution_states": [
+            [1, -1, 1, -1],
+            [-1, 1, -1, -1],
+            [-1, -1, 1, 1],
+            [-1, 1, -1, -1]
+        ]
+    },
+    8: {
+        "difficulty": "hard",
+        "grid": [
+            [4, 6, 5, 4, 7, 2],
+            [9, 5, 8, 1, 3, 3],
+            [1, 5, 3, 3, 3, 3],
+            [8, 1, 5, 4, 9, 6],
+            [1, 5, 8, 6, 2, 3],
+            [6, 7, 6, 9, 8, 2]
+        ],
+        "row_targets": [9, 1, 15, 10, 9, 14],
+        "col_targets": [7, 6, 16, 18, 3, 8]
+    },
+    9: {
+        "difficulty": "hard",
+        "grid": [
+            [4, 6, 9, 2, 9, 6],
+            [6, 1, 5, 6, 6, 6],
+            [7, 5, 9, 9, 1, 1],
+            [1, 5, 2, 9, 7, 6],
+            [7, 6, 2, 7, 2, 7],
+            [7, 9, 6, 6, 6, 4]
+        ],
+        "row_targets": [18, 12, 6, 3, 24, 22],
+        "col_targets": [1, 12, 24, 19, 18, 11],
+        "solution_states": [
+            [-1, -1,  1, -1,  1, -1],
+            [-1,  1,  1,  1, -1, -1],
+            [-1,  1, -1, -1,  1, -1],
+            [ 1, -1,  1, -1, -1, -1],
+            [-1,  1,  1,  1,  1,  1],
+            [-1, -1,  1,  1,  1,  1]
+        ]
+    },
+    10: {
+        "difficulty": "hard",
+        "grid": [
+            [4, 3, 7, 9, 6, 7],
+            [4, 2, 9, 1, 2, 7],
+            [3, 3, 5, 5, 4, 5],
+            [2, 5, 3, 6, 4, 6],
+            [4, 2, 1, 2, 4, 2],
+            [8, 7, 5, 5, 4, 4]
+        ],
+        "row_targets": [11, 10, 6, 10, 7, 16],
+        "col_targets": [13, 17, 9, 3, 4, 14],
+        "solution_states": [
+            [ 1, -1, -1, -1, -1,  1],
+            [-1,  1, -1,  1, -1,  1],
+            [ 1,  1, -1, -1, -1, -1],
+            [ 1,  1,  1, -1, -1, -1],
+            [ 1, -1,  1,  1, -1, -1],
+            [-1,  1,  1, -1,  1, -1]
+        ]
     }
 }
 
@@ -39,12 +168,23 @@ class Crossnumber(BaseGame):
         self.reset()
         
     def reset(self) -> Dict[str, Any]:
-        self.current_level = 1
         self._load_level(self.current_level)
         return self.get_state()
-        
+
+    def set_difficulty(self, difficulty: str) -> None:
+        self.difficulty = difficulty
+        start_level = {"easy": 1, "medium": 5, "hard": 8}.get(difficulty, 1)
+        if start_level in LEVELS:
+            self.current_level = start_level
+        else:
+            self.current_level = 1
+
     def _load_level(self, level: int):
-        level_data = LEVELS.get(level, LEVELS[1])
+        if level not in LEVELS:
+            level = 1
+        self.current_level = level
+        level_data = LEVELS[level]
+        self.difficulty = level_data.get("difficulty", "easy")
         self.grid = copy.deepcopy(level_data["grid"])
         self.row_targets = list(level_data["row_targets"])
         self.col_targets = list(level_data["col_targets"])

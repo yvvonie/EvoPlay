@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { addSessionToUrl, getSessionId, resetSessionId, setSessionIdFromUrl, tryResume } from "../utils/session.js";
 import GameGuide from "./GameGuide.vue";
 
-defineProps({ playerName: { type: String, default: "" } });
+const props = defineProps({ playerName: { type: String, default: "" } });
 
 const guideTitle = "How to Play Sudoku";
 const guideSections = [
@@ -23,10 +23,12 @@ const fixedCells = ref([]);
 const notes = ref([]);
 const conflicts = ref([]);
 const score = ref(0);
+const lives = ref(3);
 const filledCells = ref(0);
 const totalToFill = ref(0);
 const mistakes = ref(0);
 const currentLevel = ref(1);
+const difficulty = ref("easy");
 const maxLevel = ref(1);
 const gameOver = ref(false);
 const won = ref(false);
@@ -44,7 +46,16 @@ let pollTimer = null;
 const hasSelection = computed(() => Array.isArray(selectedCell.value));
 const selectedRow = computed(() => selectedCell.value?.[0] ?? -1);
 const selectedCol = computed(() => selectedCell.value?.[1] ?? -1);
-const progressText = computed(() => `${score.value}/${totalToFill.value}`);
+const DIFFICULTIES = [
+  { value: "easy",   label: "Easy" },
+  { value: "medium", label: "Medium" },
+  { value: "hard",   label: "Hard" },
+];
+
+async function applyDifficulty(diff) {
+  difficulty.value = diff;
+  await resetGame();
+}
 
 function applyState(state) {
   if (state.session_id) sessionId.value = state.session_id;
@@ -54,10 +65,12 @@ function applyState(state) {
   notes.value = state.notes || [];
   conflicts.value = state.conflicts || [];
   score.value = state.score ?? 0;
+  lives.value = state.lives ?? 3;
   filledCells.value = state.filled_cells ?? 0;
   totalToFill.value = state.total_to_fill ?? 0;
   mistakes.value = state.mistakes ?? 0;
   currentLevel.value = state.current_level ?? 1;
+  difficulty.value = state.difficulty ?? "easy";
   maxLevel.value = state.max_level ?? 1;
   gameOver.value = !!state.game_over;
   won.value = !!state.won;
@@ -86,7 +99,11 @@ async function resetGame() {
   selectedCell.value = null;
   const sid = resetSessionId(GAME_KEY);
   sessionId.value = sid;
-  const res = await fetch(addSessionToUrl(`${API}/reset`, sid));
+  let url = `${API}/reset?difficulty=${difficulty.value}`;
+  if (props.playerName) {
+    url += `&player_name=${encodeURIComponent(props.playerName)}`;
+  }
+  const res = await fetch(addSessionToUrl(url, sid));
   const data = await res.json();
   if (data.error) {
     error.value = data.error;
@@ -261,7 +278,29 @@ onUnmounted(() => {
 
 <template>
   <div class="wrapper">
-    <GameGuide :title="guideTitle" :sections="guideSections" />
+    <div class="game-header">
+      <div class="header-left">
+        <GameGuide :title="guideTitle" :sections="guideSections" />
+      </div>
+      <div class="header-center">
+        <div class="level-badge">{{ difficulty.toUpperCase() }}</div>
+        <div class="level-title">Level {{ currentLevel }}</div>
+      </div>
+      <div class="header-right">
+      </div>
+    </div>
+
+    <!-- Difficulty selector -->
+    <div class="difficulty-bar">
+      <button
+        v-for="d in DIFFICULTIES"
+        :key="d.value"
+        class="diff-btn"
+        :class="{ active: difficulty === d.value }"
+        :disabled="isWatching"
+        @click="applyDifficulty(d.value)"
+      >{{ d.label }}</button>
+    </div>
 
     <div class="top-bar">
       <div class="stat-card">
@@ -279,6 +318,9 @@ onUnmounted(() => {
     </div>
 
     <div class="sub-bar">
+      <div class="lives-board">
+        <span v-for="n in 3" :key="n" class="heart" :class="{ lost: n > lives }">❤️</span>
+      </div>
       <span class="sub-pill">Filled {{ filledCells }}/{{ totalToFill }}</span>
       <span v-if="isWatching" class="sub-pill watch">Watching</span>
       <span v-else-if="noteMode" class="sub-pill notes">Notes On</span>
@@ -357,8 +399,16 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <div v-if="won" class="banner success">Puzzle solved!</div>
-    <div v-else-if="withdrawn" class="banner warn">You gave up this Sudoku.</div>
+    <!-- Status Banner -->
+    <div v-if="won" class="banner success">
+      🎉 You solved it!
+    </div>
+    <div v-else-if="lives <= 0" class="banner warn">
+      💔 Out of lives! Game Over.
+    </div>
+    <div v-else-if="withdrawn" class="banner warn">
+      🏳️ You gave up.
+    </div>
     <div v-else-if="hasSelection" class="banner info">
       Selected row {{ selectedRow + 1 }}, col {{ selectedCol + 1 }}
     </div>
@@ -375,6 +425,61 @@ onUnmounted(() => {
   gap: 14px;
   align-items: center;
   width: 100%;
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.header-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.level-badge {
+  background: #cbd5e1;
+  color: #334155;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  letter-spacing: 1px;
+}
+.level-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #8b5cf6;
+}
+
+/* Difficulty */
+.difficulty-bar {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.diff-btn {
+  padding: 5px 16px;
+  border-radius: 20px;
+  border: 1px solid #475569;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.diff-btn:hover:not(:disabled) { border-color: #60a5fa; color: #60a5fa; }
+.diff-btn.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+  font-weight: 600;
+}
+.diff-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .top-bar {
@@ -433,6 +538,21 @@ onUnmounted(() => {
 .sub-pill.notes {
   color: #86efac;
   border-color: #16a34a;
+}
+
+.lives-board {
+  display: flex;
+  gap: 4px;
+}
+
+.heart {
+  font-size: 1.1rem;
+  transition: opacity 0.3s;
+}
+
+.heart.lost {
+  opacity: 0.2;
+  filter: grayscale(100%);
 }
 
 .board {
