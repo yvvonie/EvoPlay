@@ -8,6 +8,8 @@ import GameFourInARow from "./components/GameFourInARow.vue";
 import GameOthello6 from "./components/GameOthello6.vue";
 import GameSlidingPuzzle from "./components/GameSlidingPuzzle.vue";
 import GameTicTacToe from "./components/GameTicTacToe.vue";
+import GameCrossnumber from "./components/GameCrossnumber.vue";
+import GameSudoku from "./components/GameSudoku.vue";
 
 const games = ref([]);
 const currentGame = ref(null); // null = home menu
@@ -98,6 +100,16 @@ const gameInfo = {
     desc: "Slide tiles to arrange numbers 1-8 in order!",
     icon: "🧩",
   },
+  crossnumber: {
+    title: "Crossnumber",
+    desc: "Fill the grid with valid math equations!",
+    icon: "🔢",
+  },
+  sudoku: {
+    title: "Sudoku",
+    desc: "Fill every row, column, and box with 1-9!",
+    icon: "🔲",
+  },
 };
 
 const categories = [
@@ -107,7 +119,7 @@ const categories = [
   },
   {
     label: "Puzzle Games",
-    games: ["nuts_bolts", "sokoban"],
+    games: ["nuts_bolts", "sokoban", "sudoku"],
   },
   {
     label: "1v1 vs Bot",
@@ -115,7 +127,7 @@ const categories = [
   },
   {
     label: "Not Sure",
-    games: ["sliding_puzzle"],
+    games: ["sliding_puzzle", "crossnumber"],
   },
 ];
 
@@ -265,6 +277,8 @@ onMounted(async () => {
         <GameOthello6 v-else-if="currentGame === 'othello6'" :player-name="playerName" />
         <GameTicTacToe v-else-if="currentGame === 'tictactoe'" :player-name="playerName" />
         <GameSlidingPuzzle v-else-if="currentGame === 'sliding_puzzle'" :player-name="playerName" />
+        <GameCrossnumber v-else-if="currentGame === 'crossnumber'" :player-name="playerName" />
+        <GameSudoku v-else-if="currentGame === 'sudoku'" :player-name="playerName" />
       </main>
     </template>
   </div>

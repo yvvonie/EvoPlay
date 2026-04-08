@@ -37,6 +37,8 @@ from games.game_fourinarow import FourInARow
 from games.game_othello6 import Othello6
 from games.game_tictactoe import TicTacToe
 from games.game_sliding_puzzle import SlidingPuzzle
+from games.game_crossnumber import Crossnumber
+from games.game_sudoku import Sudoku
 
 # ── Logging ─────────────────────────────────────────────────────────
 
@@ -69,6 +71,8 @@ GAMES: dict[str, type] = {
     "othello6": Othello6,
     "tictactoe": TicTacToe,
     "sliding_puzzle": SlidingPuzzle,
+    "crossnumber": Crossnumber,
+    "sudoku": Sudoku,
 }
 
 # Active game sessions keyed by (game_name, session_id) tuple.
