@@ -116,6 +116,8 @@ class Sokoban(BaseGame):
             self._load_level(self.current_level)
         elif action in ["up", "down", "left", "right"]:
             self._move(action)
+            if not self.game_over and self._is_deadlocked():
+                self.game_over = True
         
         state = self.get_state()
         self._record_log(action, state)
@@ -458,3 +460,32 @@ AVAILABLE ACTIONS:
         if len(goals) > 0 and goals_covered == len(goals):
             self.won = True
             self.game_over = True
+
+    def _is_static_block(self, r: int, c: int) -> bool:
+        if r < 0 or r >= len(self.map) or c < 0 or c >= len(self.map[0]):
+            return True
+        return self.map[r][c] in ['#', 'O', 'W']
+
+    def _has_directional_move(self) -> bool:
+        for direction in ["up", "down", "left", "right"]:
+            if self._can_move(direction):
+                return True
+        return False
+
+    def _is_corner_deadlock(self, box: list[int]) -> bool:
+        r, c = box
+        if self.map[r][c] == '.':
+            return False
+        up = self._is_static_block(r - 1, c)
+        down = self._is_static_block(r + 1, c)
+        left = self._is_static_block(r, c - 1)
+        right = self._is_static_block(r, c + 1)
+        return (up and left) or (up and right) or (down and left) or (down and right)
+
+    def _is_deadlocked(self) -> bool:
+        if self.won:
+            return False
+        for box in self.boxes:
+            if self._is_corner_deadlock(box):
+                return True
+        return not self._has_directional_move()
