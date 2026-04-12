@@ -47,21 +47,147 @@ class CircleCat(BaseGame):
         self.board[center][center] = "C"
         self.walls = set()
 
-        # Place exactly 10 random walls in the inner 9x9 area
+        # --- Strategic wall placement (15 walls total) ---
+        dist_map = self._bfs_distances(self.cat)
+
+        # Layer 1: inner support (distance 2) — 3 walls
         inner_cells = [
-            (i, j)
-            for i in range(1, self.size - 1)
-            for j in range(1, self.size - 1)
-            if (i, j) != self.cat
+            pos for pos, d in dist_map.items()
+            if d == 2
+            and 1 <= pos[0] < self.size - 1
+            and 1 <= pos[1] < self.size - 1
+            and pos != self.cat
         ]
         rng.shuffle(inner_cells)
-        for i, j in inner_cells[:15]:
+        for i, j in inner_cells[:3]:
             self.board[i][j] = "1"
             self.walls.add((i, j))
+
+        # Layer 2: broken ring (distance 3-4) — 5 walls scattered
+        ring_cells = [
+            pos for pos, d in dist_map.items()
+            if d in (3, 4)
+            and 1 <= pos[0] < self.size - 1
+            and 1 <= pos[1] < self.size - 1
+            and pos != self.cat
+            and pos not in self.walls
+        ]
+        rng.shuffle(ring_cells)
+        for i, j in ring_cells[:4]:
+            self.board[i][j] = "1"
+            self.walls.add((i, j))
+
+        # Layer 3: outer walls (distance 5+) — 8 walls, spread across 4 quadrants
+        # Divide board into 4 quadrants relative to cat center
+        outer_cells = [
+            pos for pos, d in dist_map.items()
+            if d >= 5
+            and 1 <= pos[0] < self.size - 1
+            and 1 <= pos[1] < self.size - 1
+            and pos != self.cat
+            and pos not in self.walls
+        ]
+        # Split into quadrants: top-left, top-right, bottom-left, bottom-right
+        quadrants = {q: [] for q in range(4)}
+        for pos in outer_cells:
+            r, c = pos
+            qi = (0 if r < center else 2) + (0 if c < center else 1)
+            quadrants[qi].append(pos)
+        for q in quadrants:
+            rng.shuffle(quadrants[q])
+        # Place 2 walls per quadrant
+        for q in range(4):
+            for pos in quadrants[q][:2]:
+                self.board[pos[0]][pos[1]] = "1"
+                self.walls.add(pos)
 
         self.game_over = False
         self.won = False
         self.score = 0
+
+        # Validate: simulate greedy player vs cat. If player can't win, regenerate.
+        if not self._simulate_winnable():
+            self._seed = rng.randint(0, 2**31)
+            self._generate(self._seed)
+
+    def _simulate_winnable(self) -> bool:
+        """Simulate a greedy player (place wall to maximize cat distance) vs smart cat.
+        Returns True if the greedy player wins within 50 turns."""
+        from copy import deepcopy
+        sim_board = deepcopy(self.board)
+        sim_walls = set(self.walls)
+        sim_cat = self.cat
+
+        for _ in range(50):
+            # Player turn: find best wall placement (maximize cat's BFS distance)
+            best_wall = None
+            best_dist = -1
+            candidates = [
+                (i, j)
+                for i in range(1, self.size - 1)
+                for j in range(1, self.size - 1)
+                if sim_board[i][j] == "0" and (i, j) != sim_cat
+            ]
+            for wall in candidates:
+                test_walls = sim_walls | {wall}
+                dist = self._sim_bfs_to_exit(sim_cat, sim_board, test_walls)
+                if dist > best_dist:
+                    best_dist = dist
+                    best_wall = wall
+
+            if best_wall is None:
+                return False
+
+            sim_board[best_wall[0]][best_wall[1]] = "1"
+            sim_walls.add(best_wall)
+
+            # Check if cat is already trapped
+            if self._sim_bfs_to_exit(sim_cat, sim_board, sim_walls) == float("inf"):
+                return True
+
+            # Cat turn: find best move using BFS
+            neighbors = self.get_neighbors(sim_cat)
+            valid_moves = [n for n in neighbors if sim_board[n[0]][n[1]] == "0"]
+
+            if not valid_moves:
+                return True  # cat trapped
+
+            # Cat escapes immediately?
+            for m in valid_moves:
+                if self.is_boundary(m):
+                    return False
+
+            # Cat picks shortest BFS to exit
+            best_move = valid_moves[0]
+            min_d = float("inf")
+            for m in valid_moves:
+                d = self._sim_bfs_to_exit(m, sim_board, sim_walls)
+                if d < min_d:
+                    min_d = d
+                    best_move = m
+
+            sim_board[sim_cat[0]][sim_cat[1]] = "0"
+            sim_board[best_move[0]][best_move[1]] = "C"
+            sim_cat = best_move
+
+            if self.is_boundary(sim_cat):
+                return False
+
+        return False  # didn't win in 50 turns
+
+    def _sim_bfs_to_exit(self, start, board, walls) -> float:
+        """BFS from start to boundary, respecting walls."""
+        visited = {start}
+        q = deque([(start, 0)])
+        while q:
+            pos, dist = q.popleft()
+            if self.is_boundary(pos):
+                return dist
+            for nb in self.get_neighbors(pos):
+                if nb not in visited and nb not in walls and board[nb[0]][nb[1]] != "1":
+                    visited.add(nb)
+                    q.append((nb, dist + 1))
+        return float("inf")
 
     # ── Hex neighbours ─────────────────────────────────────────────
 
@@ -82,6 +208,20 @@ class CircleCat(BaseGame):
         r, c = pos
         return r == 0 or r == self.size - 1 or c == 0 or c == self.size - 1
 
+    # ── BFS distances from a position ─────────────────────────────
+
+    def _bfs_distances(self, start: tuple[int, int]) -> dict[tuple[int, int], int]:
+        """BFS from start, return distance map to all reachable cells (ignoring walls)."""
+        dist = {start: 0}
+        q = deque([start])
+        while q:
+            pos = q.popleft()
+            for nb in self.get_neighbors(pos):
+                if nb not in dist and 0 <= nb[0] < self.size and 0 <= nb[1] < self.size:
+                    dist[nb] = dist[pos] + 1
+                    q.append(nb)
+        return dist
+
     # ── BFS distance to boundary ───────────────────────────────────
 
     def calculate_distance(self, pos: tuple[int, int], temp_walls: set) -> float:
@@ -100,6 +240,8 @@ class CircleCat(BaseGame):
     # ── Smart cat move (hard difficulty) ───────────────────────────
 
     def find_best_cat_move(self) -> tuple[int, int] | None:
+        """Minimax: cat picks the move that minimizes its escape distance
+        even after the player places the best possible wall."""
         current_pos = self.cat
         neighbors = self.get_neighbors(current_pos)
         valid_moves = [n for n in neighbors if self.board[n[0]][n[1]] == "0"]
@@ -112,13 +254,47 @@ class CircleCat(BaseGame):
             if self.is_boundary(move):
                 return move
 
-        # Use simple BFS distance to nearest exit for each move
-        best_move = None
-        min_dist = float("inf")
+        best_move = valid_moves[0]  # fallback: always have a move if valid_moves is not empty
+        best_worst_dist = float("inf")
+        best_direct_dist = float("inf")
+
         for move in valid_moves:
-            dist = self._bfs_to_exit(move)
-            if dist < min_dist:
-                min_dist = dist
+            # Simulate cat moving here
+            temp_walls = set(self.walls)
+            temp_cat = move
+
+            # Find all positions where player could place a wall
+            possible_walls = [
+                (i, j)
+                for i in range(self.size)
+                for j in range(self.size)
+                if self.board[i][j] == "0"
+                and (i, j) != temp_cat
+                and (i, j) != current_pos
+            ]
+
+            if not possible_walls:
+                # No walls can be placed — just use direct BFS
+                dist = self.calculate_distance(temp_cat, temp_walls)
+                if dist < best_worst_dist:
+                    best_worst_dist = dist
+                    best_move = move
+                continue
+
+            # Worst case: player places the wall that maximizes cat's distance
+            worst_dist = 0
+            for wall in possible_walls:
+                new_walls = temp_walls | {wall}
+                dist = self.calculate_distance(temp_cat, new_walls)
+                if dist > worst_dist:
+                    worst_dist = dist
+
+            # Cat picks the move where the worst case is still minimal
+            # Tiebreak: prefer shorter direct BFS distance (avoid oscillation)
+            direct_dist = self._bfs_to_exit(move)
+            if worst_dist < best_worst_dist or (worst_dist == best_worst_dist and direct_dist < best_direct_dist):
+                best_worst_dist = worst_dist
+                best_direct_dist = direct_dist
                 best_move = move
 
         return best_move
@@ -230,10 +406,8 @@ class CircleCat(BaseGame):
         self.board[cat_move[0]][cat_move[1]] = "C"
         self.cat = cat_move
 
-        # Check if cat is now trapped after moving
-        neighbors = self.get_neighbors(cat_move)
-        trapped = all(self.board[nr][nc] == "1" for nr, nc in neighbors)
-        if trapped:
+        # Check if cat has no path to boundary (fully enclosed)
+        if self._bfs_to_exit(cat_move) == float("inf"):
             self.game_over = True
             self.won = True
             self.score = 1
