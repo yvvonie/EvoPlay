@@ -378,14 +378,20 @@ class CircleCat(BaseGame):
         # Cat's turn
         cat_move = self.find_best_cat_move()
 
+        # Log format: "wall:vr,vc|cat:vr,vc" (visible coordinates)
+        log_action = f"wall:{vr},{vc}"
+
         if cat_move is None:
             # Cat is trapped - player wins
             self.game_over = True
             self.won = True
             self.score = 1
+            log_action += "|cat:trapped"
             state = self.get_state()
-            self._record_log(action, state)
+            self._record_log(log_action, state)
             return state
+
+        cat_vr, cat_vc = cat_move[0] - 1, cat_move[1] - 1  # visible coords
 
         if self.is_boundary(cat_move):
             # Cat reaches exit - player loses
@@ -396,8 +402,9 @@ class CircleCat(BaseGame):
             self.game_over = True
             self.won = False
             self.score = 0
+            log_action += f"|cat:escaped({cat_vr},{cat_vc})"
             state = self.get_state()
-            self._record_log(action, state)
+            self._record_log(log_action, state)
             return state
 
         # Cat moves to new position
@@ -405,6 +412,7 @@ class CircleCat(BaseGame):
         self.board[old_r][old_c] = "0"
         self.board[cat_move[0]][cat_move[1]] = "C"
         self.cat = cat_move
+        log_action += f"|cat:{cat_vr},{cat_vc}"
 
         # Check if cat has no path to boundary (fully enclosed)
         if self._bfs_to_exit(cat_move) == float("inf"):
@@ -413,7 +421,7 @@ class CircleCat(BaseGame):
             self.score = 1
 
         state = self.get_state()
-        self._record_log(action, state)
+        self._record_log(log_action, state)
         return state
 
     def valid_actions(self) -> list[str]:
@@ -430,20 +438,22 @@ class CircleCat(BaseGame):
 
     def get_rules(self) -> str:
         return (
-            "Circle the Cat is played on an 11x11 visible hexagonal grid.\n\n"
-            "OBJECTIVE: Trap the cat by surrounding it with walls so it cannot reach the boundary.\n\n"
-            "RULES:\n"
-            "- The cat (C) starts near the center. Some cells start as walls (1).\n"
-            "- You and the cat take turns. On your turn, place a wall on any empty interior cell.\n"
-            "- The cat then moves one step toward the nearest boundary using smart pathfinding.\n"
-            "- The boundary (outermost row/column) is the exit. If the cat reaches it, you lose.\n"
-            "- If the cat has no valid moves, you win!\n\n"
-            "ACTIONS:\n"
-            "- Specify a cell as 'r c' (e.g., '3 5') to place a wall there.\n"
-            "- You can only place walls on empty (0) non-boundary cells.\n\n"
+            "Below is a hexagonal board represented in a textual 11x11 grid. "
+            "Each cell is labeled with a character: '1' = wall, 'C' = cat, '0' = empty space. "
+            "Although shown as a square grid, each row is slightly offset from its neighbors in a hex layout, "
+            "and each cell has up to six neighbors (not four or eight as in a square grid).\n\n"
             "HEXAGONAL NEIGHBORS:\n"
-            "- Even rows: (r-1,c), (r-1,c+1), (r,c-1), (r,c+1), (r+1,c), (r+1,c+1)\n"
-            "- Odd rows: (r-1,c-1), (r-1,c), (r,c-1), (r,c+1), (r+1,c-1), (r+1,c)\n"
+            "For a cell at coordinates (r, c):\n"
+            "- If r is even: neighbors are (r-1,c), (r-1,c+1), (r,c-1), (r,c+1), (r+1,c), (r+1,c+1)\n"
+            "- If r is odd: neighbors are (r-1,c-1), (r-1,c), (r,c-1), (r,c+1), (r+1,c-1), (r+1,c)\n\n"
+            "RULES:\n"
+            "- You and the cat take turns. On your turn, place a wall on any empty cell ('0') that is not on the boundary.\n"
+            "- On the cat's turn, it moves to one of its adjacent empty cells.\n"
+            "- If the cat reaches the boundary (row 0, row 10, col 0, or col 10), you lose.\n"
+            "- If the cat has no path to reach the boundary, you win.\n\n"
+            "AVAILABLE ACTIONS:\n"
+            "- Action format: 'r c' (e.g., '3 5') to place a wall at row 3, column 5.\n"
+            "- You can place a wall on any empty cell ('0') that is not on the boundary (row 0/10 or col 0/10).\n"
         )
 
     def restore_state(self, saved_state: dict[str, Any]) -> None:

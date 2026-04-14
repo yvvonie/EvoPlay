@@ -7,9 +7,9 @@ defineProps({ playerName: { type: String, default: "" } });
 
 const guideTitle = "How to Play Circle the Cat";
 const guideSections = [
-  { label: "Goal", text: "Trap the cat by surrounding it with walls so it cannot reach the boundary." },
-  { label: "Controls", text: "Click any empty interior cell to place a wall. The cat will then move one step toward the boundary." },
-  { label: "Rules", text: "The cat uses smart pathfinding to escape. If the cat reaches the boundary (outermost row/column), you lose. If the cat has no valid moves, you win!" },
+  { label: "Goal", text: "Trap the cat by placing walls so it cannot escape the board." },
+  { label: "Controls", text: "Click any empty interior cell to place a wall. The cat will then make its move." },
+  { label: "Rules", text: "You and the cat take turns. If the cat reaches the boundary, you lose. If the cat has no path to the boundary, you win!" },
 ];
 
 const API = "/api/game/circlecat";

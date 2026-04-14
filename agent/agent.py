@@ -48,16 +48,20 @@ class Agent:
         self.game_name = game_name
         self.session_id = session_id
         self.step_count = 0
-        # Setup agent reasoning logging
-        self.log_dir = Path("agent_logs")
+        # Setup agent reasoning logging (agent_logs/<game_name>/)
+        self.log_dir = Path("agent_logs") / game_name
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.agent_log_file = None
         
         # Use model name as player_name if not explicitly provided
         llm = getattr(reasoning, "llm", None)
         default_name = getattr(llm, "model", "llm-agent")
-        if llm and not getattr(llm, "no_thinking", True):
+        # Add -thinking suffix only for models with custom api_base (e.g. SiliconFlow)
+        # that have thinking mode enabled (no_thinking=False)
+        if llm and getattr(llm, "_api_base", None) and not getattr(llm, "no_thinking", True):
             default_name += "-thinking"
+        if getattr(reasoning, "use_cot", False):
+            default_name += "-cot"
         self.player_name = player_name or default_name
         # LLM response log (created lazily after session_id is known)
         self._llm_log_file = None
@@ -264,9 +268,14 @@ class Agent:
             
         if self.agent_log_file is None:
             # Initialize log file
-            log_path = self.log_dir / f"{self.game_name}_{self.session_id}.jsonl"
+            log_path = self.log_dir / f"{self.session_id}.jsonl"
             self.agent_log_file = open(log_path, "a", encoding="utf-8")
             
+        # Get full model response (raw + reasoning)
+        llm = getattr(self.reasoning, "llm", None)
+        raw_response = getattr(self.reasoning, "last_raw_response", "")
+        reasoning_content = getattr(llm, "last_reasoning", "") if llm else ""
+
         log_entry = {
             "step": self.step_count,
             "game": self.game_name,
@@ -274,6 +283,8 @@ class Agent:
             "state": state,
             "valid_actions": valid_actions,
             "chosen_action": chosen_action,
+            "raw_response": raw_response,
+            "reasoning_content": reasoning_content,
             "timestamp": time.time()
         }
         self.agent_log_file.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
