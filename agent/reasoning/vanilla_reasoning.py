@@ -39,6 +39,7 @@ class VanillaReasoning(Reasoning):
         max_tokens: int = 50,
         no_thinking: bool = False,
         extra_headers: dict | None = None,
+        use_cot: bool = False,
     ):
         """
         Initialize vanilla reasoning.
@@ -50,7 +51,9 @@ class VanillaReasoning(Reasoning):
             api_base: API base URL (for local models like Ollama)
             temperature: Sampling temperature (0.0-2.0)
             max_tokens: Max tokens in response
+            use_cot: Whether to use Chain-of-Thought prompting
         """
+        self.use_cot = use_cot
         # Initialize unified LLM interface
         self.llm = LLM(
             model=model,
@@ -103,24 +106,51 @@ class VanillaReasoning(Reasoning):
         else:
             board_label = "Current board:"
 
-        prompt = f"""You are playing the game "{game_name}".{rules_section}
+        # circlecat: don't list valid actions (too many), let model decide from board
+        show_actions = (game_name != "circlecat")
+
+        if self.use_cot:
+            if show_actions:
+                actions_block = f"Valid actions: [{actions_str}]\n\n"
+            else:
+                actions_block = ""
+            prompt = f"""You are playing the game "{game_name}".{rules_section}
 
 {board_label}
 {board_str}
 Score: {score}
 {extra_context}
-IMPORTANT: You MUST choose exactly one action from this list (copy it exactly):
-[{actions_str}]
+{actions_block}First, analyze the current board state and decide the best action according to the game rules.
+Second, output your final answer in exactly this format: Answer: $YOUR_ANSWER"""
+            system_message = "You are a game-playing AI agent. First briefly analyze, then output your answer as 'Answer: <action>'."
+        else:
+            if show_actions:
+                actions_block = f"IMPORTANT: You MUST choose exactly one action from this list (copy it exactly):\n[{actions_str}]"
+            else:
+                actions_block = "Output your move as 'r c' (e.g., '3 5')."
+            prompt = f"""You are playing the game "{game_name}".{rules_section}
+
+{board_label}
+{board_str}
+Score: {score}
+{extra_context}
+{actions_block}
 
 Pick the best action. Respond with ONLY the action string, nothing else."""
+            system_message = "You are a game-playing AI agent. Respond with only the action string."
 
         try:
-            # Call language model via unified interface
-            system_message = "You are a game-playing AI agent. Respond with only the action string."
             response = self.llm.simple_call(prompt, system_message=system_message)
 
             raw_response = response.strip()
+
+            # Parse "Answer: xxx" format if CoT
             action = raw_response
+            if "Answer:" in raw_response:
+                action = raw_response.split("Answer:")[-1].strip()
+            elif "answer:" in raw_response:
+                action = raw_response.split("answer:")[-1].strip()
+
             fallback = False
 
             # Validate that the action is in valid_actions

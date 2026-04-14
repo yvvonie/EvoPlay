@@ -46,6 +46,7 @@ class LLM:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.no_thinking = no_thinking
+        self.last_reasoning = ""
         self._extra_headers = extra_headers or {}
         self._litellm = None  # Will be imported lazily
         self._api_base = api_base
@@ -163,10 +164,10 @@ class LLM:
             return self._direct_api_call(full_messages, call_kwargs)
 
         # Call LiteLLM for standard providers with retry
-        max_retries = 3
-        for attempt in range(max_retries):
+        attempt = 0
+        while True:
             try:
-                call_kwargs["timeout"] = 60
+                call_kwargs["timeout"] = 600
                 response = self._litellm.completion(
                     model=self.model,
                     messages=full_messages,
@@ -174,11 +175,11 @@ class LLM:
                 )
                 break
             except Exception as e:
-                print(f"  [LLM] API call error (attempt {attempt+1}/{max_retries}): {e}")
-                if attempt == max_retries - 1:
-                    raise
+                attempt += 1
+                wait = min(2 ** attempt, 60)
+                print(f"  [LLM] API call error (attempt {attempt}): {e} — retrying in {wait}s")
                 import time
-                time.sleep(2 ** attempt)
+                time.sleep(wait)
 
         # Store token usage from response
         usage = getattr(response, "usage", None)
@@ -187,12 +188,16 @@ class LLM:
             "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
         }
 
-        content = response.choices[0].message.content or ""
+        msg = response.choices[0].message
+        content = msg.content or ""
+        # Try to get reasoning_content from model_extra
+        raw = getattr(msg, "model_extra", {}) or {}
+        self.last_reasoning = raw.get("reasoning_content", "") or ""
         # Strip thinking tags if present
         if "</think>" in content:
             content = content.split("</think>")[-1]
         return content.strip()
-    
+
     def _direct_api_call(self, messages: list, call_kwargs: dict) -> str:
         """Direct HTTP call to custom API base, preserving reasoning_content."""
         import json
@@ -233,18 +238,18 @@ class LLM:
             headers=headers,
         )
 
-        max_retries = 3
-        for attempt in range(max_retries):
+        attempt = 0
+        while True:
             try:
-                resp = urllib.request.urlopen(req, timeout=60)
+                resp = urllib.request.urlopen(req, timeout=600)
                 result = json.loads(resp.read())
                 break
             except Exception as e:
-                print(f"  [LLM] API call timeout/error (attempt {attempt+1}/{max_retries}): {e}")
-                if attempt == max_retries - 1:
-                    raise
+                attempt += 1
+                wait = min(2 ** attempt, 60)
+                print(f"  [LLM] API call error (attempt {attempt}): {e} — retrying in {wait}s")
                 import time
-                time.sleep(2 ** attempt)
+                time.sleep(wait)
                 # Recreate request (urlopen consumes it)
                 req = urllib.request.Request(
                     url,
@@ -262,6 +267,7 @@ class LLM:
         # Get content — check both content and reasoning_content
         msg = result["choices"][0]["message"]
         content = msg.get("content", "") or ""
+        self.last_reasoning = msg.get("reasoning_content", "") or ""
 
         # Strip thinking tags if present
         if "</think>" in content:

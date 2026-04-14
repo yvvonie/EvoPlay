@@ -37,6 +37,7 @@ from games.game_fourinarow import FourInARow
 from games.game_othello6 import Othello6
 from games.game_tictactoe import TicTacToe
 from games.game_sliding_puzzle import SlidingPuzzle
+from games.game_circlecat import CircleCat
 from games.game_crossnumber import Crossnumber
 from games.game_sudoku import Sudoku
 
@@ -71,6 +72,7 @@ GAMES: dict[str, type] = {
     "othello6": Othello6,
     "tictactoe": TicTacToe,
     "sliding_puzzle": SlidingPuzzle,
+    "circlecat": CircleCat,
     "crossnumber": Crossnumber,
     "sudoku": Sudoku,
 }

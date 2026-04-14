@@ -8,6 +8,7 @@ import GameFourInARow from "./components/GameFourInARow.vue";
 import GameOthello6 from "./components/GameOthello6.vue";
 import GameSlidingPuzzle from "./components/GameSlidingPuzzle.vue";
 import GameTicTacToe from "./components/GameTicTacToe.vue";
+import GameCircleCat from "./components/GameCircleCat.vue";
 import GameCrossnumber from "./components/GameCrossnumber.vue";
 import GameSudoku from "./components/GameSudoku.vue";
 
@@ -100,6 +101,10 @@ const gameInfo = {
     desc: "Slide tiles to arrange numbers 1-8 in order!",
     icon: "🧩",
   },
+  circlecat: {
+    title: "Circle the Cat",
+    desc: "Place walls on a hex grid to trap the cat!",
+    icon: "🐱",
   crossnumber: {
     title: "Crossnumber",
     desc: "Fill the grid with valid math equations!",
@@ -123,7 +128,7 @@ const categories = [
   },
   {
     label: "1v1 vs Bot",
-    games: ["fourinarow", "othello6", "tictactoe"],
+    games: ["fourinarow", "othello6", "tictactoe", "circlecat"],
   },
   {
     label: "Not Sure",
@@ -277,6 +282,7 @@ onMounted(async () => {
         <GameOthello6 v-else-if="currentGame === 'othello6'" :player-name="playerName" />
         <GameTicTacToe v-else-if="currentGame === 'tictactoe'" :player-name="playerName" />
         <GameSlidingPuzzle v-else-if="currentGame === 'sliding_puzzle'" :player-name="playerName" />
+        <GameCircleCat v-else-if="currentGame === 'circlecat'" :player-name="playerName" />
         <GameCrossnumber v-else-if="currentGame === 'crossnumber'" :player-name="playerName" />
         <GameSudoku v-else-if="currentGame === 'sudoku'" :player-name="playerName" />
       </main>
@@ -298,7 +304,7 @@ body {
 }
 
 .app {
-  max-width: 520px;
+  max-width: 600px;
   margin: 0 auto;
   padding: 20px;
 }
