@@ -9,6 +9,8 @@ import GameOthello6 from "./components/GameOthello6.vue";
 import GameSlidingPuzzle from "./components/GameSlidingPuzzle.vue";
 import GameTicTacToe from "./components/GameTicTacToe.vue";
 import GameCircleCat from "./components/GameCircleCat.vue";
+import GameCrossnumber from "./components/GameCrossnumber.vue";
+import GameSudoku from "./components/GameSudoku.vue";
 
 const games = ref([]);
 const currentGame = ref(null); // null = home menu
@@ -103,6 +105,15 @@ const gameInfo = {
     title: "Circle the Cat",
     desc: "Place walls on a hex grid to trap the cat!",
     icon: "🐱",
+  crossnumber: {
+    title: "Crossnumber",
+    desc: "Fill the grid with valid math equations!",
+    icon: "🔢",
+  },
+  sudoku: {
+    title: "Sudoku",
+    desc: "Fill every row, column, and box with 1-9!",
+    icon: "🔲",
   },
 };
 
@@ -113,7 +124,7 @@ const categories = [
   },
   {
     label: "Puzzle Games",
-    games: ["nuts_bolts", "sokoban"],
+    games: ["nuts_bolts", "sokoban", "sudoku"],
   },
   {
     label: "1v1 vs Bot",
@@ -121,7 +132,7 @@ const categories = [
   },
   {
     label: "Not Sure",
-    games: ["sliding_puzzle"],
+    games: ["sliding_puzzle", "crossnumber"],
   },
 ];
 
@@ -272,6 +283,8 @@ onMounted(async () => {
         <GameTicTacToe v-else-if="currentGame === 'tictactoe'" :player-name="playerName" />
         <GameSlidingPuzzle v-else-if="currentGame === 'sliding_puzzle'" :player-name="playerName" />
         <GameCircleCat v-else-if="currentGame === 'circlecat'" :player-name="playerName" />
+        <GameCrossnumber v-else-if="currentGame === 'crossnumber'" :player-name="playerName" />
+        <GameSudoku v-else-if="currentGame === 'sudoku'" :player-name="playerName" />
       </main>
     </template>
   </div>

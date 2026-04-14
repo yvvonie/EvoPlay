@@ -101,6 +101,8 @@ class NutsBolts(BaseGame):
                     self._check_win_condition()
                     if self.won:
                         self.game_over = True
+                    elif self._is_deadlocked():
+                        self.game_over = True
                 else:
                     state = self.get_state()
                     state["error"] = "Invalid move."
@@ -515,3 +517,19 @@ AVAILABLE ACTIONS:
                 
         if completed_towers == target_towers:
             self.won = True
+
+    def _has_sort_move(self) -> bool:
+        for src_idx in range(self.num_screws):
+            if len(self.screws[src_idx]) == 0:
+                continue
+            for dst_idx in range(self.num_screws):
+                if src_idx == dst_idx:
+                    continue
+                if self._is_valid_move(src_idx, dst_idx):
+                    return True
+        return False
+
+    def _is_deadlocked(self) -> bool:
+        if self.won:
+            return False
+        return not self._has_sort_move()
