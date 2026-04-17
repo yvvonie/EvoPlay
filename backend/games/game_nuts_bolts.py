@@ -302,24 +302,26 @@ class NutsBolts(BaseGame):
             ]
         elif level == 10:
             # New Level 10: 12 screws (10 filled, 2 empty), capacity 8
-            # Colors: 10 distinct colors
-            # Layout: 3 Rows of 4
+            # Colors: 10 distinct colors, matching the reference layout:
+            # red, yellow, blue, cyan, orange, pink, purple, brown,
+            # light green (g), dark green (k)
+            # Layout: 3 rows of 4, with the last two screws empty
             self.screw_capacity = 8
             self.num_screws = 12
             self.screws = [
                 # Row 1
-                ['v', 'v', 'b', 'n', 'o', 'n', 'g', 'g'], # 1
-                ['v', 'p', 'b', 'o', 'c', 'p', 'y', 'y'], # 2
-                ['b', 'n', 'g', 'g', 'r', 'p', 'y', 'y'], # 3
-                ['n', 'g', 'o', 'o', 'n', 'b', 'p', 'p'], # 4
+                ['v', 'g', 'o', 'n', 'o', 'g', 'n', 'g'], # 1
+                ['v', 'r', 'b', 'o', 'g', 'c', 'p', 'y'], # 2
+                ['g', 'b', 'n', 'k', 'k', 'o', 'r', 'y'], # 3
+                ['n', 'g', 'r', 'o', 'y', 'n', 'b', 'p'], # 4
                 # Row 2
-                ['b', 'b', 'c', 'y', 'y', 'c', 'p', 'p'], # 5
-                ['o', 'b', 'r', 'v', 'g', 'b', 'b', 'b'], # 6
-                ['o', 'r', 'v', 'p', 'p', 'g', 'c', 'c'], # 7
-                ['b', 'v', 'p', 'n', 'o', 'v', 'v', 'v'], # 8
+                ['c', 'c', 'b', 'k', 'y', 'c', 'p', 'p'], # 5
+                ['o', 'r', 'c', 'b', 'r', 'g', 'b', 'b'], # 6
+                ['o', 'r', 'r', 'v', 'p', 'p', 'k', 'p'], # 7
+                ['b', 'v', 'v', 'p', 'n', 'o', 'v', 'v'], # 8
                 # Row 3
-                ['b', 'y', 'g', 'c', 'n', 'g', 'y', 'y'], # 9
-                ['r', 'n', 'v', 'c', 'n', 'o', 'y', 'y'], # 10
+                ['c', 'c', 'y', 'g', 'k', 'k', 'y', 'y'], # 9
+                ['r', 'n', 'k', 'v', 'c', 'n', 'k', 'y'], # 10
                 [], # 11
                 []  # 12
             ]
