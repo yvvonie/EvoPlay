@@ -182,31 +182,6 @@ LEVELS = {
         ],
     },
     8: {
-        "difficulty": "medium",
-        "puzzle": [
-            [0, 9, 4, 7, 0, 0, 2, 0, 8],
-            [5, 0, 3, 0, 0, 2, 0, 6, 0],
-            [0, 2, 0, 6, 3, 0, 0, 0, 9],
-            [2, 4, 5, 3, 0, 6, 1, 0, 7],
-            [0, 3, 0, 0, 0, 7, 8, 0, 6],
-            [0, 0, 7, 0, 4, 1, 3, 2, 5],
-            [0, 0, 2, 5, 7, 9, 6, 8, 4],
-            [9, 0, 0, 0, 2, 0, 5, 0, 3],
-            [0, 5, 0, 0, 6, 0, 9, 0, 2],
-        ],
-        "solution": [
-            [6, 9, 4, 7, 1, 5, 2, 3, 8],
-            [5, 8, 3, 4, 9, 2, 7, 6, 1],
-            [7, 2, 1, 6, 3, 8, 4, 5, 9],
-            [2, 4, 5, 3, 8, 6, 1, 9, 7],
-            [1, 3, 9, 2, 5, 7, 8, 4, 6],
-            [8, 6, 7, 9, 4, 1, 3, 2, 5],
-            [3, 1, 2, 5, 7, 9, 6, 8, 4],
-            [9, 7, 6, 8, 2, 4, 5, 1, 3],
-            [4, 5, 8, 1, 6, 3, 9, 7, 2],
-        ],
-    },
-    9: {
         "difficulty": "hard",
         "puzzle": [
             [0, 0, 0, 0, 5, 8, 6, 0, 0],
@@ -231,7 +206,7 @@ LEVELS = {
             [4, 3, 7, 8, 9, 5, 1, 2, 6],
         ],
     },
-    10: {
+    9: {
         "difficulty": "hard",
         "puzzle": [
             [0, 0, 8, 3, 9, 6, 4, 0, 1],
@@ -256,7 +231,7 @@ LEVELS = {
             [8, 7, 9, 1, 4, 2, 5, 3, 6],
         ],
     },
-    11: {
+    10: {
         "difficulty": "hard",
         "puzzle": [
             [4, 6, 0, 0, 0, 0, 7, 3, 8],
@@ -286,6 +261,7 @@ LEVELS = {
 
 class Sudoku(BaseGame):
     name = "sudoku"
+    MAX_LIVES = 3
 
     def __init__(self) -> None:
         self.current_level = 1
@@ -297,6 +273,7 @@ class Sudoku(BaseGame):
         self.fixed_cells: list[list[bool]] = []
         self.notes: list[list[list[int]]] = []
         self.conflicts: list[list[bool]] = []
+        self.candidates: list[list[list[int]]] = []
         self.score = 0
         self.filled_cells = 0
         self.total_to_fill = 0
@@ -304,6 +281,9 @@ class Sudoku(BaseGame):
         self.game_over = False
         self.won = False
         self.withdrawn = False
+        self.lives = self.MAX_LIVES
+        self.last_feedback: str | None = None
+        self.last_mismatch: dict[str, Any] | None = None
         self.history: list[dict[str, Any]] = []
         self.undo_available = False
         self._reset_log()
@@ -322,7 +302,7 @@ class Sudoku(BaseGame):
 
     def set_difficulty(self, difficulty: str) -> None:
         self.difficulty = difficulty
-        start_level = {"easy": 1, "medium": 5, "hard": 9}.get(difficulty, 1)
+        start_level = {"easy": 1, "medium": 5, "hard": 8}.get(difficulty, 1)
         if start_level in LEVELS:
             self.current_level = start_level
         else:
@@ -343,6 +323,10 @@ class Sudoku(BaseGame):
             [[] for _ in range(9)]
             for _ in range(9)
         ]
+        self.candidates = [
+            [[] for _ in range(9)]
+            for _ in range(9)
+        ]
         self.conflicts = [
             [False for _ in range(9)]
             for _ in range(9)
@@ -350,6 +334,9 @@ class Sudoku(BaseGame):
         self.game_over = False
         self.won = False
         self.withdrawn = False
+        self.lives = self.MAX_LIVES
+        self.last_feedback = None
+        self.last_mismatch = None
         self.history = []
         self._refresh_state_metrics()
         self._save_history()
@@ -381,6 +368,10 @@ class Sudoku(BaseGame):
         self.undo_available = len(self.history) > 1
 
     def _refresh_state_metrics(self) -> None:
+        self.candidates = [
+            [[] for _ in range(9)]
+            for _ in range(9)
+        ]
         self.conflicts = [
             [False for _ in range(9)]
             for _ in range(9)
@@ -445,6 +436,11 @@ class Sudoku(BaseGame):
             for c in range(9)
             if not self.fixed_cells[r][c] and self.conflicts[r][c]
         )
+        for r in range(9):
+            for c in range(9):
+                if self.fixed_cells[r][c] or self.board[r][c] != 0:
+                    continue
+                self.candidates[r][c] = self._legal_candidates(r, c)
         self.won = all(
             self.board[r][c] == self.solution[r][c]
             for r in range(9)
@@ -452,6 +448,30 @@ class Sudoku(BaseGame):
         )
         if self.won:
             self.game_over = True
+
+    def _legal_candidates(self, row: int, col: int) -> list[int]:
+        if self.fixed_cells[row][col] or self.board[row][col] != 0:
+            return []
+
+        used = set()
+        for c in range(9):
+            value = self.board[row][c]
+            if value != 0:
+                used.add(value)
+        for r in range(9):
+            value = self.board[r][col]
+            if value != 0:
+                used.add(value)
+
+        box_row = (row // 3) * 3
+        box_col = (col // 3) * 3
+        for r in range(box_row, box_row + 3):
+            for c in range(box_col, box_col + 3):
+                value = self.board[r][c]
+                if value != 0:
+                    used.add(value)
+
+        return [value for value in range(1, 10) if value not in used]
 
     def get_state(self) -> dict[str, Any]:
         return {
@@ -461,15 +481,20 @@ class Sudoku(BaseGame):
             "fixed_cells": deepcopy(self.fixed_cells),
             "notes": deepcopy(self.notes),
             "conflicts": deepcopy(self.conflicts),
+            "candidates": deepcopy(self.candidates),
             "score": self.score,
             "filled_cells": self.filled_cells,
             "total_to_fill": self.total_to_fill,
             "mistakes": self.mistakes,
+            "lives": self.lives,
+            "max_lives": self.MAX_LIVES,
             "game_over": self.game_over,
             "won": self.won,
             "withdrawn": self.withdrawn,
             "valid_actions": self.valid_actions(),
             "undo_available": self.undo_available,
+            "last_feedback": self.last_feedback,
+            "last_mismatch": self.last_mismatch,
             "current_level": self.current_level,
             "max_level": self.max_level,
             "difficulty": self.difficulty,
@@ -477,9 +502,11 @@ class Sudoku(BaseGame):
 
     def valid_actions(self) -> list[str]:
         if self.game_over:
+            if self.won and self.current_level < self.max_level:
+                return ["next_level"]
             return []
 
-        actions = ["withdraw"]
+        actions = []
         if self.undo_available:
             actions.append("undo")
 
@@ -501,20 +528,27 @@ class Sudoku(BaseGame):
 
     def apply_action(self, action: str) -> dict[str, Any]:
         action = action.strip().lower()
+        action_step = self._steps + 1
 
-        if self.game_over:
+        if self.game_over and action != "next_level":
             state = self.get_state()
             state["error"] = "Game is already over."
             return state
 
+        if action == "next_level":
+            self.current_level += 1
+            self._load_level(self.current_level)
+            state = self.get_state()
+            self._record_log(action, state)
+            return state
+
         if action == "undo":
             self._apply_undo()
-            return self.get_state()
-
-        if action == "withdraw":
-            self.withdrawn = True
-            self.game_over = True
-            return self.get_state()
+            self.last_feedback = f"Step {action_step}: undo used."
+            self.last_mismatch = None
+            state = self.get_state()
+            self._record_log(action, state)
+            return state
 
         parts = action.split("_")
         changed = False
@@ -548,6 +582,27 @@ class Sudoku(BaseGame):
             if self.board[row][col] != value or self.notes[row][col]:
                 self.board[row][col] = value
                 self.notes[row][col] = []
+                if value != self.solution[row][col]:
+                    self.lives -= 1
+                    self.last_mismatch = {
+                        "step": action_step,
+                        "action": action,
+                        "row": row,
+                        "col": col,
+                        "expected": self.solution[row][col],
+                        "actual": value,
+                        "hearts_remaining": self.lives,
+                    }
+                    self.last_feedback = (
+                        f"Step {action_step}: action '{action}' mismatches solution, -1 heart. "
+                        f"Hearts left: {self.lives}. Please use undo."
+                    )
+                    if self.lives <= 0:
+                        self.lives = 0
+                        self.game_over = True
+                else:
+                    self.last_feedback = None
+                    self.last_mismatch = None
                 changed = True
 
         elif len(parts) == 4 and parts[0] == "note":
@@ -572,6 +627,8 @@ class Sudoku(BaseGame):
             else:
                 self.notes[row][col].append(value)
                 self.notes[row][col].sort()
+            self.last_feedback = None
+            self.last_mismatch = None
             changed = True
         else:
             state = self.get_state()
@@ -581,8 +638,11 @@ class Sudoku(BaseGame):
         if changed:
             self._refresh_state_metrics()
             self._save_history()
-
-        return self.get_state()
+        state = self.get_state()
+        if self.last_feedback and self.last_mismatch:
+            state["error"] = self.last_feedback
+        self._record_log(action, state)
+        return state
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -594,6 +654,7 @@ class Sudoku(BaseGame):
                 "score": self.score,
                 "filled_cells": self.filled_cells,
                 "mistakes": self.mistakes,
+                "lives": self.lives,
                 "game_over": self.game_over,
                 "won": self.won,
                 "withdrawn": self.withdrawn,
@@ -616,6 +677,7 @@ class Sudoku(BaseGame):
         self.game_over = saved_state.get("game_over", False)
         self.won = saved_state.get("won", False)
         self.withdrawn = saved_state.get("withdrawn", False)
+        self.lives = saved_state.get("lives", self.MAX_LIVES)
         self._refresh_state_metrics()
         if self.withdrawn:
             self.game_over = True
@@ -631,10 +693,12 @@ class Sudoku(BaseGame):
             "3. Each column must contain every number 1-9 exactly once.\n"
             "4. Each 3x3 box must contain every number 1-9 exactly once.\n"
             "5. Given cells cannot be changed.\n"
+            "6. IMPORTANT PENALTY RULE (Hearts): You start with 3 hearts. If you make a 'set' action that conflicts with the hidden solution, you lose 1 heart. If you reach 0 hearts, you lose the game immediately.\n"
+            "7. IMPORTANT RECOVERY RULE (Undo): If you make a mistake and get an error feedback, you MUST use the 'undo' action immediately to recover.\n"
             "Actions:\n"
             "- 'set_R_C_V': Put value V into row R, column C.\n"
             "- 'clear_R_C': Clear the selected editable cell.\n"
             "- 'note_R_C_V': Toggle pencil mark V in row R, column C.\n"
             "- 'undo': Revert the previous move.\n"
-            "- 'withdraw': Give up the current puzzle."
+            "- 'next_level': Go to the next level after winning the current one."
         )

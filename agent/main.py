@@ -30,6 +30,7 @@ def create_reasoning(
     max_tokens: int | None = None,
     no_thinking: bool = False,
     extra_headers: dict | None = None,
+    use_cot: bool = False,
 ) -> Reasoning:
     """
     Factory function to create reasoning engine based on method name.
@@ -72,6 +73,7 @@ def create_reasoning(
             max_tokens=max_tokens,
             no_thinking=no_thinking,
             extra_headers=extra_headers,
+            use_cot=use_cot,
         )
     else:
         raise ValueError(
@@ -209,10 +211,22 @@ Examples:
         help="Disable thinking/reasoning mode for models that support it (e.g., Qwen3.5)",
     )
     parser.add_argument(
+        "--use-cot",
+        action="store_true",
+        default=False,
+        help="Enable explicit Chain-of-Thought style prompting in the reasoning layer",
+    )
+    parser.add_argument(
         "--extra-headers",
         type=str,
         default=None,
         help='Extra HTTP headers as JSON string (e.g., \'{"cf-aig-metadata": "..."}\')',
+    )
+    parser.add_argument(
+        "--continue-to-level",
+        type=int,
+        default=None,
+        help="Continue to the specified level in a single agent process when the game supports next_level",
     )
 
     return parser.parse_args()
@@ -239,6 +253,7 @@ def main():
             max_tokens=args.max_tokens,
             no_thinking=args.no_thinking,
             extra_headers=extra_headers,
+            use_cot=args.use_cot,
         )
         print(f"Using reasoning method: {args.reasoning}")
         print(f"Using model: {args.model}")
@@ -305,7 +320,7 @@ def main():
             print(f"Warning: Failed to open browser: {e}")
     
     # Run the agent loop
-    agent.run_loop(max_steps=max_steps, delay=args.delay)
+    agent.run_loop(max_steps=max_steps, delay=args.delay, continue_to_level=args.continue_to_level)
 
 
 if __name__ == "__main__":
