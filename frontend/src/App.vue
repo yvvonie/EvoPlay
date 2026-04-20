@@ -105,6 +105,7 @@ const gameInfo = {
     title: "Circle the Cat",
     desc: "Place walls on a hex grid to trap the cat!",
     icon: "🐱",
+  },
   crossnumber: {
     title: "Crossnumber",
     desc: "Fill the grid with valid math equations!",
