@@ -48,9 +48,6 @@ class Agent:
         self.game_name = game_name
         self.session_id = session_id
         self.step_count = 0
-        # Setup agent reasoning logging
-        self.log_dir = Path("agent_logs")
-        self.log_dir.mkdir(parents=True, exist_ok=True)
         self.agent_log_file = None
         
         # Use model name as player_name if not explicitly provided
@@ -58,6 +55,10 @@ class Agent:
         default_name = getattr(llm, "model", "llm-agent")
         if llm and not getattr(llm, "no_thinking", True):
             default_name += "-thinking"
+        if getattr(reasoning, "multimodal", False):
+            default_name += "-multimodal"
+        if getattr(reasoning, "use_cot", False):
+            default_name += "-cot"
         self.player_name = player_name or default_name
         # LLM response log (created lazily after session_id is known)
         self._llm_log_file = None
@@ -191,10 +192,15 @@ class Agent:
             return
         if not self.session_id:
             return
-        game_dir = LLM_LOG_DIR / self.game_name
-        game_dir.mkdir(parents=True, exist_ok=True)
+
+        # Set up API call logger and LLM log for this session
+        from agent.llm import api_logger
+        safe_player = self.player_name.replace("/", "_").replace("\\", "_")
         safe_sid = self.session_id.replace("/", "_").replace("\\", "_")
-        log_path = game_dir / f"{safe_sid}.csv"
+        session_dir = LLM_LOG_DIR / self.game_name / safe_player / safe_sid
+        session_dir.mkdir(parents=True, exist_ok=True)
+        api_logger.set_log_file(session_dir / "api_calls.jsonl")
+        log_path = session_dir / "llm_responses.csv"
         self._llm_log_file = open(log_path, "w", encoding="utf-8", newline="")
         self._llm_log_writer = csv.writer(self._llm_log_file)
         self._llm_log_writer.writerow(["step", "raw_response", "parsed_action", "fallback", "valid_actions", "input_tokens", "output_tokens"])
@@ -263,8 +269,11 @@ class Agent:
             return
             
         if self.agent_log_file is None:
-            # Initialize log file
-            log_path = self.log_dir / f"{self.game_name}_{self.session_id}.jsonl"
+            # Initialize log file: agent_logs/<game>/<model>/<session_id>.jsonl
+            safe_player = self.player_name.replace("/", "_").replace("\\", "_")
+            agent_log_dir = Path("agent_logs") / self.game_name / safe_player
+            agent_log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = agent_log_dir / f"{self.session_id}.jsonl"
             self.agent_log_file = open(log_path, "a", encoding="utf-8")
             
         step_index = self.step_count + 1

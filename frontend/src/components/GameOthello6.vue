@@ -37,8 +37,8 @@ let pollTimer = null;
 const SIZE = 6;
 
 const DIFFICULTIES = [
-  { value: "easy",   label: "Easy",   desc: "Random moves" },
-  { value: "medium", label: "Medium", desc: "Positional strategy" },
+  // { value: "easy",   label: "Easy",   desc: "Random moves" },
+  // { value: "medium", label: "Medium", desc: "Positional strategy" },
   { value: "hard",   label: "Hard",   desc: "Positional + mobility" },
 ];
 

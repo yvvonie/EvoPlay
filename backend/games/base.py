@@ -90,7 +90,8 @@ class BaseGame(ABC):
             rd = getattr(self, "_round", 1)
             log_filename = f"{safe_session_id}_r{rd}.csv"
         
-        game_log_dir = LOG_DIR / self.name
+        player = (self._player_name or "unknown").replace("/", "_").replace("\\", "_")
+        game_log_dir = LOG_DIR / self.name / player
         game_log_dir.mkdir(parents=True, exist_ok=True)
         self._log_path = game_log_dir / log_filename
         self._log_file = open(self._log_path, "w", encoding="utf-8", newline="")

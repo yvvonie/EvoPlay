@@ -6,8 +6,48 @@ through LiteLLM, abstracting away the differences between different providers.
 
 from __future__ import annotations
 
+import json
 import os
+import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
+
+# ── Shared API Call Logger ────────────────────────────────────────
+
+MAX_RETRIES = 20
+TIMEOUT = 120  # seconds
+
+
+class APICallLogger:
+    """Logs every API call (input, output, errors) to a JSONL file."""
+
+    def __init__(self):
+        self._file = None
+        self._path = None
+
+    def set_log_file(self, path: str | Path):
+        """Set the log file path. Creates parent dirs if needed."""
+        self._path = Path(path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = open(self._path, "a", encoding="utf-8")
+
+    def log(self, entry: dict):
+        """Write a log entry."""
+        if self._file is None:
+            return
+        entry["timestamp"] = datetime.now().isoformat()
+        self._file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        self._file.flush()
+
+    def close(self):
+        if self._file:
+            self._file.close()
+            self._file = None
+
+
+# Global logger instance — set per session
+api_logger = APICallLogger()
 
 
 class LLM:
@@ -165,20 +205,44 @@ class LLM:
 
         # Call LiteLLM for standard providers with retry
         attempt = 0
-        while True:
+        while attempt < MAX_RETRIES:
             try:
-                call_kwargs["timeout"] = 600
+                call_kwargs["timeout"] = TIMEOUT
                 response = self._litellm.completion(
                     model=self.model,
                     messages=full_messages,
                     **call_kwargs
                 )
+
+                # Log success
+                api_logger.log({
+                    "type": "api_call",
+                    "status": "success",
+                    "model": self.model,
+                    "input": full_messages,
+                    "output_content": response.choices[0].message.content or "",
+                    "usage": {"prompt_tokens": getattr(response.usage, "prompt_tokens", 0),
+                              "completion_tokens": getattr(response.usage, "completion_tokens", 0)} if response.usage else {},
+                    "attempt": attempt + 1,
+                })
                 break
             except Exception as e:
                 attempt += 1
                 wait = min(2 ** attempt, 60)
-                print(f"  [LLM] API call error (attempt {attempt}): {e} — retrying in {wait}s")
-                import time
+                print(f"  [LLM] API call error (attempt {attempt}/{MAX_RETRIES}): {e} — retrying in {wait}s")
+
+                # Log failure
+                api_logger.log({
+                    "type": "api_call",
+                    "status": "error",
+                    "model": self.model,
+                    "input": full_messages,
+                    "error": str(e),
+                    "attempt": attempt,
+                })
+
+                if attempt >= MAX_RETRIES:
+                    raise RuntimeError(f"API call failed after {MAX_RETRIES} retries: {e}")
                 time.sleep(wait)
 
         # Store token usage from response
@@ -239,23 +303,44 @@ class LLM:
         )
 
         attempt = 0
-        while True:
+        while attempt < MAX_RETRIES:
             try:
-                resp = urllib.request.urlopen(req, timeout=600)
+                req = urllib.request.Request(
+                    url, data=json.dumps(body).encode(), headers=headers,
+                )
+                resp = urllib.request.urlopen(req, timeout=TIMEOUT)
                 result = json.loads(resp.read())
+
+                # Log success
+                api_logger.log({
+                    "type": "api_call",
+                    "status": "success",
+                    "model": model_name,
+                    "input": messages,
+                    "output_content": result["choices"][0]["message"].get("content", ""),
+                    "output_reasoning": result["choices"][0]["message"].get("reasoning_content", ""),
+                    "usage": result.get("usage", {}),
+                    "attempt": attempt + 1,
+                })
                 break
             except Exception as e:
                 attempt += 1
                 wait = min(2 ** attempt, 60)
-                print(f"  [LLM] API call error (attempt {attempt}): {e} — retrying in {wait}s")
-                import time
+                print(f"  [LLM] API call error (attempt {attempt}/{MAX_RETRIES}): {e} — retrying in {wait}s")
+
+                # Log failure
+                api_logger.log({
+                    "type": "api_call",
+                    "status": "error",
+                    "model": model_name,
+                    "input": messages,
+                    "error": str(e),
+                    "attempt": attempt,
+                })
+
+                if attempt >= MAX_RETRIES:
+                    raise RuntimeError(f"API call failed after {MAX_RETRIES} retries: {e}")
                 time.sleep(wait)
-                # Recreate request (urlopen consumes it)
-                req = urllib.request.Request(
-                    url,
-                    data=json.dumps(body).encode(),
-                    headers=headers,
-                )
 
         # Extract usage
         usage_data = result.get("usage", {})

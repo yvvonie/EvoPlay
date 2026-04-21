@@ -225,6 +225,10 @@ class Othello6(BaseGame):
             state["bot_flipped"] = [[r, c] for r, c in flipped]
             return state
 
+        # Bot has no move — check if game should end
+        self._resolve_game_over()
+        if self.game_over:
+            self._record_log("bot:no_move", self.get_state())
         return self.get_state()
 
     def reset(self) -> dict[str, Any]:
@@ -251,6 +255,77 @@ class Othello6(BaseGame):
         if _valid_moves(self.board, BOT):
             return ["pass"]
         return []
+
+    # ── Render for multimodal ────────────────────────────────────────
+
+    def render(self) -> str:
+        """Render the board as a PNG image, return the file path."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from pathlib import Path
+
+        fig, ax = plt.subplots(figsize=(7, 7))
+        ax.set_xlim(-0.5, SIZE - 0.5)
+        ax.set_ylim(-0.8, SIZE - 0.5)
+        ax.set_aspect("equal")
+        ax.invert_yaxis()
+        ax.set_facecolor("#166534")
+        fig.patch.set_facecolor("#1e293b")
+
+        # Column numbers at top
+        for c in range(SIZE):
+            ax.text(c, -0.6, str(c), ha="center", va="center",
+                    fontsize=18, fontweight="bold", color="white")
+
+        # Row numbers on left
+        for r in range(SIZE):
+            ax.text(-0.7, r, str(r), ha="center", va="center",
+                    fontsize=18, fontweight="bold", color="white")
+
+        # Draw cells
+        for r in range(SIZE):
+            for c in range(SIZE):
+                cell = self.board[r][c]
+                # Grid cell background
+                rect = plt.Rectangle((c - 0.45, r - 0.45), 0.9, 0.9,
+                                      facecolor="#15803d", edgecolor="#166534", linewidth=2)
+                ax.add_patch(rect)
+
+                if cell == HUMAN:
+                    circle = plt.Circle((c, r), 0.38, facecolor="black",
+                                         edgecolor="#333333", linewidth=1.5)
+                    ax.add_patch(circle)
+                    ax.text(c, r, "You", ha="center", va="center",
+                            fontsize=13, fontweight="bold", color="white")
+                elif cell == BOT:
+                    circle = plt.Circle((c, r), 0.38, facecolor="white",
+                                         edgecolor="#cccccc", linewidth=1.5)
+                    ax.add_patch(circle)
+                    ax.text(c, r, "Bot", ha="center", va="center",
+                            fontsize=13, fontweight="bold", color="black")
+
+        # Mark valid moves with small dots
+        valid = _valid_moves(self.board, HUMAN)
+        for r, c in valid:
+            dot = plt.Circle((c, r), 0.1, facecolor=(1, 1, 1, 0.5),
+                              edgecolor="none")
+            ax.add_patch(dot)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+        plt.title("Othello", fontsize=16, fontweight="bold",
+                  color="white", pad=15)
+
+        cache_dir = Path(__file__).resolve().parent.parent / "cache" / "othello6"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        filepath = str(cache_dir / f"board_{id(self)}.png")
+        plt.savefig(filepath, dpi=100, bbox_inches="tight", facecolor=fig.get_facecolor())
+        plt.close(fig)
+        return filepath
 
     def get_rules(self) -> str:
         return """Othello 6×6 (Mini Reversi) Game Rules

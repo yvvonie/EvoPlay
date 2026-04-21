@@ -145,6 +145,70 @@ GAME OVER CONDITIONS:
 
 Respond with ONLY the column number (e.g., "3")."""
 
+    # ── Render for multimodal ────────────────────────────────────────
+
+    def render(self) -> str:
+        """Render the board as a PNG image, return the file path."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+        import os
+        from pathlib import Path
+
+        fig, ax = plt.subplots(figsize=(7, 7))
+        ax.set_xlim(-0.5, COLS - 0.5)
+        ax.set_ylim(-0.8, ROWS - 0.5)
+        ax.set_aspect("equal")
+        ax.invert_yaxis()
+        ax.set_facecolor("#1d4ed8")
+        fig.patch.set_facecolor("#1e293b")
+
+        # Draw column numbers above the board
+        for c in range(COLS):
+            ax.text(c, -0.6, str(c), ha="center", va="center",
+                    fontsize=18, fontweight="bold", color="white")
+
+        # Draw cells
+        for r in range(ROWS):
+            for c in range(COLS):
+                cell = self.board[r][c]
+                if cell == HUMAN:
+                    color = "#ff0000"  # bright red
+                    text_color = "white"
+                elif cell == BOT:
+                    color = "#000000"  # black
+                    text_color = "white"
+                else:
+                    color = "#ffffff"  # white (empty)
+                    text_color = "black"
+
+                circle = plt.Circle((c, r), 0.4, facecolor=color,
+                                     edgecolor="#333333", linewidth=1.5)
+                ax.add_patch(circle)
+
+                # Label pieces
+                if cell != EMPTY:
+                    label = "You" if cell == HUMAN else "Bot"
+                    ax.text(c, r, label, ha="center", va="center",
+                            fontsize=11, fontweight="bold", color=text_color)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+        plt.title("Four in a Row", fontsize=16, fontweight="bold",
+                  color="white", pad=15)
+
+        # Save to cache dir
+        cache_dir = Path(__file__).resolve().parent.parent / "cache" / "fourinarow"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        filepath = str(cache_dir / f"board_{id(self)}.png")
+        plt.savefig(filepath, dpi=100, bbox_inches="tight", facecolor=fig.get_facecolor())
+        plt.close(fig)
+        return filepath
+
     # ── Board helpers ─────────────────────────────────────────────────
 
     def _is_valid(self, col: int) -> bool:
