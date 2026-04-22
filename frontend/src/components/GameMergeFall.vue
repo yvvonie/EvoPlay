@@ -333,9 +333,7 @@ async function animateFullSequence(oldBoard, preMergeBoard, finalBoard, dropPos,
 }
 
 async function resetGame(newDifficulty) {
-  if (newDifficulty && typeof newDifficulty === 'string') {
-    difficulty.value = newDifficulty;
-  }
+  if (newDifficulty) difficulty.value = newDifficulty;
   error.value = "";
   lastGain.value = 0;
   const sid = resetSessionId("mergefall");
