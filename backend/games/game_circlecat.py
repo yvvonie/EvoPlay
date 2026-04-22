@@ -27,7 +27,7 @@ class CircleCat(BaseGame):
         self.game_over: bool = False
         self.won: bool = False
         self.score: int = 0
-        self.difficulty: str = "medium"
+        self.difficulty: str = "hard"
         self._seed: int | None = None
         self._reset_log()
         self._generate()
