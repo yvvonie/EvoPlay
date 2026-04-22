@@ -83,12 +83,22 @@ async function dropPiece(col) {
 }
 
 async function resetGame(newDifficulty) {
-  if (newDifficulty) difficulty.value = newDifficulty;
+  if (newDifficulty && typeof newDifficulty === 'string') {
+    difficulty.value = newDifficulty;
+  }
   error.value = "";
   lastBotCol.value = null;
   isThinking.value = false;
   const sid = sessionId.value || getSessionId("fourinarow");
-  const res = await fetch(addSessionToUrl(`${API}/reset?difficulty=${difficulty.value}`, sid));
+  
+  let url;
+  if (newDifficulty && typeof newDifficulty === 'string') {
+    url = addSessionToUrl(`${API}/reset?difficulty=${difficulty.value}`, sid);
+  } else {
+    url = addSessionToUrl(`${API}/reset`, sid);
+  }
+  
+  const res = await fetch(url);
   applyState(await res.json());
 }
 
