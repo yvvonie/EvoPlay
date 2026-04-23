@@ -260,3 +260,6 @@ pytest_cache/
 *.dbagent_logs/
 backend/saves/
 *.sh
+export_results.py
+find_sessions.py
+claude_reports/

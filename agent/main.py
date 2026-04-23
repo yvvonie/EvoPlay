@@ -31,6 +31,7 @@ def create_reasoning(
     no_thinking: bool = False,
     extra_headers: dict | None = None,
     use_cot: bool = False,
+    multimodal: bool = False,
     game_name: str = "tictactoe",
 ) -> Reasoning:
     """
@@ -75,6 +76,7 @@ def create_reasoning(
             no_thinking=no_thinking,
             extra_headers=extra_headers,
             use_cot=use_cot,
+            multimodal=multimodal,
         )
     elif method_lower == "rl":
         return RLReasoning(
@@ -234,6 +236,18 @@ Examples:
         default=None,
         help="Continue to the specified level in a single agent process when the game supports next_level",
     )
+    parser.add_argument(
+        "--cot",
+        action="store_true",
+        default=False,
+        help="Use Chain-of-Thought prompting (analyze first, then answer)",
+    )
+    parser.add_argument(
+        "--multimodal",
+        action="store_true",
+        default=False,
+        help="Send board as image to the model (multimodal mode)",
+    )
 
     return parser.parse_args()
 
@@ -259,11 +273,14 @@ def main():
             max_tokens=args.max_tokens,
             no_thinking=args.no_thinking,
             extra_headers=extra_headers,
-            use_cot=args.use_cot,
+            use_cot=args.cot,
+            multimodal=args.multimodal,
             game_name=args.game,
         )
         print(f"Using reasoning method: {args.reasoning}")
         print(f"Using model: {args.model}")
+        if args.cot:
+            print(f"Using CoT prompting")
         if args.api_provider:
             print(f"Using API provider: {args.api_provider}")
         

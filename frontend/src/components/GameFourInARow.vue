@@ -33,8 +33,8 @@ const ROWS = 6;
 const COLS = 7;
 
 const DIFFICULTIES = [
-  { value: "easy",   label: "Easy",   desc: "Casual fun" },
-  { value: "medium", label: "Medium", desc: "Some challenge" },
+  // { value: "easy",   label: "Easy",   desc: "Casual fun" },
+  // { value: "medium", label: "Medium", desc: "Some challenge" },
   { value: "hard",   label: "Hard",   desc: "Near-perfect" },
 ];
 

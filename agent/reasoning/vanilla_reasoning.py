@@ -40,6 +40,8 @@ class VanillaReasoning(Reasoning):
         max_tokens: int = 50,
         no_thinking: bool = False,
         extra_headers: dict | None = None,
+        use_cot: bool = False,
+        multimodal: bool = False,
     ):
         """
         Initialize vanilla reasoning.
@@ -52,6 +54,8 @@ class VanillaReasoning(Reasoning):
             temperature: Sampling temperature (0.0-2.0)
             max_tokens: Max tokens in response
         """
+        self.use_cot = use_cot
+        self.multimodal = multimodal
         # Initialize unified LLM interface
         self.llm = LLM(
             model=model,
@@ -138,18 +142,53 @@ IMPORTANT: You MUST choose exactly one action from this list (copy it exactly):
 Pick the best action. Respond with ONLY the action string, nothing else."""
 
         try:
-            # Call language model via unified interface
-            system_message = "You are a game-playing AI agent. Respond with only the action string."
-            response = self.llm.simple_call(prompt, system_message=system_message)
-
-            raw_response = response.strip()
-            action = raw_response
+            # Retry the LLM call up to 20 times if output is not a valid action
+            MAX_INVALID_RETRIES = 20
+            attempt = 0
+            raw_response = ""
+            action = ""
             fallback = False
+            last_usage = {"input_tokens": 0, "output_tokens": 0}
 
-            # Validate that the action is in valid_actions
+            while attempt < MAX_INVALID_RETRIES:
+                # Multimodal: render board as image and build visual prompt
+                if self.multimodal and hasattr(game_state, '__getitem__'):
+                    image_path = self._render_board(game_name, game_state)
+                    if image_path:
+                        mm_prompt = self._build_multimodal_prompt(game_name, game_state, valid_actions, rules)
+                        mm_system = "You are a good game player. First give your analysis, then output your answer in the required format."
+                        response = self._multimodal_call(mm_prompt, image_path, mm_system)
+                    else:
+                        response = self.llm.simple_call(prompt, system_message=system_message)
+                else:
+                    response = self.llm.simple_call(prompt, system_message=system_message)
+
+                raw_response = response.strip()
+
+                # Parse "Answer: xxx" format if CoT
+                action = raw_response
+                if "Answer:" in raw_response:
+                    action = raw_response.split("Answer:")[-1].strip()
+                elif "answer:" in raw_response:
+                    action = raw_response.split("answer:")[-1].strip()
+
+                # Accumulate usage
+                call_usage = getattr(self.llm, "last_usage", {"input_tokens": 0, "output_tokens": 0})
+                last_usage = {
+                    "input_tokens": last_usage["input_tokens"] + call_usage.get("input_tokens", 0),
+                    "output_tokens": last_usage["output_tokens"] + call_usage.get("output_tokens", 0),
+                }
+
+                # Validate that the action is in valid_actions
+                if action in valid_actions:
+                    break  # Success
+
+                attempt += 1
+                print(f"Warning: Model returned invalid action '{action}' (attempt {attempt}/{MAX_INVALID_RETRIES})")
+
+            # If still invalid after all retries, fallback to first valid action
             if action not in valid_actions:
-                # If model returned an invalid action, fallback to first valid action
-                print(f"Warning: Model returned invalid action '{action}', using first valid action instead")
+                print(f"Exhausted {MAX_INVALID_RETRIES} retries, falling back to first valid action")
                 action = valid_actions[0] if valid_actions else ""
                 fallback = True
 
@@ -157,7 +196,7 @@ Pick the best action. Respond with ONLY the action string, nothing else."""
             self.last_raw_response = raw_response
             self.last_action = action
             self.last_fallback = fallback
-            self.last_usage = getattr(self.llm, "last_usage", {"input_tokens": 0, "output_tokens": 0})
+            self.last_usage = last_usage
 
             return action
 
@@ -188,3 +227,108 @@ Pick the best action. Respond with ONLY the action string, nothing else."""
         for r, row in enumerate(board):
             rows.append(f"{r} " + " ".join(symbol.get(cell, str(cell)) for cell in row))
         return header + "\n" + "\n".join(rows)
+
+    # ── Multimodal support ────────────────────────────────────────
+
+    def _build_multimodal_prompt(self, game_name: str, game_state: dict, valid_actions: list, rules: str) -> str:
+        """Build a multimodal prompt where the board is shown as an image, not text."""
+        actions_str = ', '.join(valid_actions)
+
+        if game_name == "fourinarow":
+            return (
+                "You are a good game player. I'll give you a game board as a picture and rules.\n"
+                "Your task is:\n"
+                "- First, give your answer according to the game board and rules.\n"
+                "- Second, output the answer in the required format. The last line of your response "
+                "should be in the following format: 'Answer: $YOUR_ANSWER' (without quotes), "
+                "where YOUR_ANSWER is your final answer, e.g. 'Answer: 3'\n\n"
+                "In the board shown, the red circles labeled 'You' are your pieces, "
+                "the black circles labeled 'Bot' are the opponent's pieces, "
+                "and the white circles are empty spaces. "
+                "The column numbers (0-6) are shown at the top of the board.\n\n"
+                "RULES:\n"
+                "- This is a 6-row × 7-column vertical grid. Pieces drop to the lowest empty cell in the chosen column.\n"
+                "- You and the bot take turns. You move first.\n"
+                "- First to connect 4 pieces in a row (horizontally, vertically, or diagonally) wins.\n\n"
+                f"Valid columns: [{actions_str}]\n\n"
+                "Choose a column number to drop your piece. "
+                "The last line of your response should be 'Answer: X', where X is the column number."
+            )
+
+        if game_name == "othello6":
+            return (
+                "You are a good game player. I'll give you a game board as a picture and rules.\n"
+                "Your task is:\n"
+                "- First, give your answer according to the game board and rules.\n"
+                "- Second, output the answer in the required format. The last line of your response "
+                "should be in the following format: 'Answer: $YOUR_ANSWER' (without quotes), "
+                "where YOUR_ANSWER is your final answer, e.g. 'Answer: 2 3'\n\n"
+                "In the board shown, the black circles labeled 'You' are your pieces, "
+                "the white circles labeled 'Bot' are the opponent's pieces, "
+                "and empty green cells are available spaces. "
+                "Small dots indicate valid moves you can make. "
+                "Row numbers (0-5) are on the left, column numbers (0-5) are at the top.\n\n"
+                "RULES:\n"
+                "- This is a 6×6 Othello (Reversi) board.\n"
+                "- Place a piece to outflank and flip the opponent's pieces in any direction (horizontal, vertical, diagonal).\n"
+                "- You must flip at least one opponent piece per move.\n"
+                "- The game ends when neither player can move. The player with more pieces wins.\n\n"
+                f"Valid moves: [{actions_str}]\n\n"
+                "Choose a position as 'row col'. "
+                "The last line of your response should be 'Answer: R C', where R is the row and C is the column."
+            )
+
+        # Default: use text rules + image
+        return (
+            f"You are a good game player. I'll give you a game board as a picture and rules.\n"
+            f"Your task is:\n"
+            f"- First, give your answer according to the game board and rules.\n"
+            f"- Second, output the answer in the required format. The last line of your response "
+            f"should be in the following format: 'Answer: $YOUR_ANSWER' (without quotes).\n\n"
+            f"{rules}\n\n"
+            f"Valid actions: [{actions_str}]\n\n"
+            f"Choose the best action. The last line of your response should be 'Answer: X', "
+            f"where X is your chosen action."
+        )
+
+    def _render_board(self, game_name: str, game_state: dict) -> str | None:
+        """Render board as image via backend game's render() method. Returns file path or None."""
+        import requests
+        try:
+            # Call backend to render the board
+            board = game_state.get("board", [])
+            # Use a temporary game instance to render
+            if game_name == "fourinarow":
+                from games.game_fourinarow import FourInARow
+                temp = FourInARow.__new__(FourInARow)
+                temp.board = board
+                return temp.render()
+            elif game_name == "othello6":
+                from games.game_othello6 import Othello6
+                temp = Othello6.__new__(Othello6)
+                temp.board = board
+                temp.size = 6
+                return temp.render()
+        except Exception as e:
+            print(f"  [Multimodal] Failed to render: {e}")
+        return None
+
+    def _multimodal_call(self, prompt: str, image_path: str, system_message: str) -> str:
+        """Call LLM with text prompt + image."""
+        import base64
+
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+            ],
+        })
+
+        return self.llm.call(messages)
