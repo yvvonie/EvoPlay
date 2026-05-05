@@ -123,7 +123,7 @@ class VanillaReasoning(Reasoning):
         actions_str = ', '.join(valid_actions)
 
         if game_name == "fourinarow":
-            board_label = "Current board (X=you, O=opponent, .=empty):"
+            board_label = "Current board (1=you, 2=opponent, 0=empty):"
         else:
             board_label = "Current board:"
 
@@ -131,15 +131,12 @@ class VanillaReasoning(Reasoning):
 
 {board_label}
 {board_str}
-Score: {score}
 {extra_context}
-FULL GAME STATE (JSON):
-{state_json}
-
 IMPORTANT: You MUST choose exactly one action from this list (copy it exactly):
 [{actions_str}]
 
 Pick the best action. Respond with ONLY the action string, nothing else."""
+        system_message = "You are a game-playing AI agent. Respond with only the action string."
 
         try:
             # Retry the LLM call up to 20 times if output is not a valid action
